@@ -10,8 +10,4 @@ First, `pairing.py` takes a .csv file where the first row contains column header
 5. everyone gets exactly one gift. 
 
 
-Note that the approach is inelegant in that an index vector is 'shuffled', then checked against conditions 1 through 4, and shuffled again until these are true. Optimised for coding time, not for elegance and computation.  
-
 Then, `sendemail.py` sends an email to each 'giver' with information about his 'receiver', corresponding with the list generated in the previous script. Run with caution, as this sends an email to everyone upon running!  
-
-Hacked together for a 'Secret Valentine' event at student residence, and modified for 'Secret Santa' initiatives small and large after that.   
