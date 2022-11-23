@@ -6,7 +6,7 @@ import random
 """Read csv with names, email addresses and room numbers of participants
     """
 def read_file():
-    with open('list.csv') as csvfile:
+    with open('list_chalcraft.csv') as csvfile:
         reader = csv.reader(csvfile, delimiter=',')
         giver_list = list(reader)
         giver_list = giver_list[1:] # remove first row
@@ -61,10 +61,11 @@ def main():
                     conditions_met = False
                     break
     write_file(givers_list, rand_vec) # write csv file with pairs
-    for ind in range(N): # print in Terminal
-        print(givers_list[ind][1], "(", givers_list[ind][2], ") to", \
-           givers_list[rand_vec[ind]][1], "(", givers_list[rand_vec[ind]][2], ")")
-    print("Number of iterations needed: ", iteration) # Print number of iterations
+## Uncomment below to test in terminal
+#    for ind in range(N): # print in Terminal
+#        print(givers_list[ind][1], "(", givers_list[ind][2], ") to", \
+#           givers_list[rand_vec[ind]][1], "(", givers_list[rand_vec[ind]][2], ")")
+#    print("Number of iterations needed: ", iteration) # Print number of iterations
 
 if __name__ == '__main__':
     main()

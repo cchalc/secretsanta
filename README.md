@@ -11,3 +11,5 @@ First, `pairing.py` takes a .csv file where the first row contains column header
 
 
 Then, `sendemail.py` sends an email to each 'giver' with information about his 'receiver', corresponding with the list generated in the previous script. Run with caution, as this sends an email to everyone upon running!  
+
+Note: If sendmail is not working make sure you configure the appropriate email settings. If using Gmail then an App password might be needed if TFA is enabled. [App Passwords](https://support.google.com/accounts/answer/185833)

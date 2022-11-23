@@ -26,14 +26,12 @@ def send_email(pair_list):
             "",
             "Thanks for participating in the Holtby Family Secret Santa!",
             "",
-            "Please find a present for " + row[3] + " that is no more than $50. Remember to keep it a secret!",
+            "Please find a present for " + row[3] + ". Remember to keep it a secret!",
             "",
             "Merry Christmas!",
             "",
             "Santa's Elf",
             "",
-            "PS. If you need to mail a gift to Calgary, the address is:",
-            "2001 9 Avenue SE, Calgary, AB, T2G 0V4"
             ])
         username=os.environ.get('EMAIL_HOST_USER')
         password=os.environ.get('EMAIL_HOST_PASSWORD') 
