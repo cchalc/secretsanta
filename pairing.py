@@ -2,11 +2,12 @@
 import sys
 import csv
 import random
+import argparse
 
 """Read csv with names, email addresses and room numbers of participants
     """
-def read_file():
-    with open('list_chalcraft.csv') as csvfile:
+def read_file(input_file_path):
+    with open(input_file_path) as csvfile:
         reader = csv.reader(csvfile, delimiter=',')
         giver_list = list(reader)
         giver_list = giver_list[1:] # remove first row
@@ -26,8 +27,13 @@ def write_file(givers_list, rand_vec):
 """ Define a main() function that calls the necessary functions.
     """
 def main():
+    parser = argparse.ArgumentParser(description='Secret Santa list')
+    parser.add_argument('input_file', type=str, help='Path to the input file')
+    args = parser.parse_args()
+    input_file_path = args.input_file
+
     # Get givers list and generate receivers list
-    givers_list = read_file() # read csv file
+    givers_list = read_file(input_file_path) # read csv file
     N = givers_list.__len__() # number of participants
     rand_vec = list(range(N)) # array of indices
     max_iterations = 1000

@@ -14,23 +14,23 @@ import smtplib
     """
 def send_email(pair_list):
     for row in pair_list:
-        from_addr = 'Secret Santa <chris.chalcraft@gmail.com>'
+        from_addr = 'Santa\'s Elf'
         to_addr  = row[2]
         msg = "\r\n".join([
             "From: " + from_addr,
             "To: " + to_addr,
-            "Subject: Holtby Family Secret Santa",
+            "Subject: 2023 Family Secret Santa",
             "",
             "Dear " + row[0][1:]+","
             "",
             "",
-            "Thanks for participating in the Holtby Family Secret Santa!",
+            "Thanks for participating in the 2023 Family Secret Santa!",
             "",
-            "Please find a present for " + row[3] + ". Remember to keep it a secret!",
+            "Please find a present for " + row[3] + ".",
+            "",
+            "If you would like, please share gift ideas you may like in WhatsApp family chat",
             "",
             "Merry Christmas!",
-            "",
-            "Santa's Elf",
             "",
             ])
         username=os.environ.get('EMAIL_HOST_USER')
