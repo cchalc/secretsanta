@@ -19,12 +19,12 @@ def send_email(pair_list):
         msg = "\r\n".join([
             "From: " + from_addr,
             "To: " + to_addr,
-            "Subject: 2023 Family Secret Santa",
+            "Subject: 2024 Family Secret Santa",
             "",
             "Dear " + row[0][1:]+","
             "",
             "",
-            "Thanks for participating in the 2023 Family Secret Santa!",
+            "Thanks for participating in the 2024 Family Secret Santa!",
             "",
             "Please find a present for " + row[3] + ".",
             "",
