@@ -1,0 +1,32 @@
+[package]
+name = "santa"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+clap = { version = "4.6.9", features = ["derive"] }
+csv = "1.4.0"
+lettre = { version = "0.11.24", default-features = false, features = ["smtp-transport", "pool", "rustls", "ring", "rustls-native-certs", "builder", "hostname"] }
+rand = "0.10.4"
+rand_chacha = "0.10.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+thiserror = "2.0.21"
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+criterion = "0.8.2"
+insta = "1.49.0"
+mail-parser = "0.11.9"
+predicates = "3.1.4"
+proptest = "1.12.0"
+tempfile = "3.27.0"
+
+[[bench]]
+name = "solve"
+harness = false
+
+[profile.test]
+opt-level = 1

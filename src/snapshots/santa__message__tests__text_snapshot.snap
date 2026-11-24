@@ -1,0 +1,16 @@
+---
+source: src/message.rs
+expression: alice_letter().text
+---
+Ho ho ho, Alice Example! 🎅
+
+The elves have drawn names for the 2026 Family Secret Santa, and you are the Secret Santa for…
+
+🎁 Bob 🎁
+
+Shh… it's a secret! 🤫 Please don't tell anyone who you have.
+
+Need ideas? Share your own wish list in the WhatsApp family chat so your Secret Santa knows what you'd love.
+
+Merry Christmas and happy holidays!
+Santa's Elf 🧝

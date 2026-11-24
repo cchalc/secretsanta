@@ -1,0 +1,47 @@
+---
+source: src/message.rs
+expression: alice_letter().html
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>🎄 Your 2026 Family Secret Santa assignment</title>
+</head>
+<body style="margin:0;padding:0;background-color:#14532d;">
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#14532d;">The elves have drawn names. Your Secret Santa assignment is inside! 🎁</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#14532d" style="background-color:#14532d;">
+<tr><td align="center" style="padding:28px 12px;">
+  <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#fffaf2" style="width:100%;max-width:600px;background-color:#fffaf2;border-radius:16px;overflow:hidden;">
+    <tr><td style="padding:0;line-height:0;">
+      <img src="cid:banner" width="600" alt="Christmas trees, presents and falling snow" style="display:block;width:100%;max-width:600px;height:auto;border:0;">
+    </td></tr>
+    <tr><td align="center" style="padding:26px 32px 4px;font-family:Georgia,'Times New Roman',serif;font-size:30px;line-height:1.2;font-weight:bold;color:#c62828;">
+      Secret Santa 2026
+    </td></tr>
+    <tr><td align="center" style="padding:0 32px 18px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:#14532d;">
+      &#10052; &nbsp;a little holiday magic&nbsp; &#10052;
+    </td></tr>
+    <tr><td style="padding:8px 28px 12px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:17px;line-height:1.6;color:#2b2b2b;">
+<p style="margin:0 0 16px;">Ho ho ho, Alice Example! 🎅</p>
+<p style="margin:0 0 16px;">The elves have drawn names for the 2026 Family Secret Santa, and you are the Secret Santa for…</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 22px;">
+<tr><td align="center" bgcolor="#c62828" style="background-color:#c62828;border:3px dashed #f9c74f;border-radius:14px;padding:20px 12px;font-family:Georgia,'Times New Roman',serif;font-size:24px;line-height:1.4;color:#ffffff;">🎁 <span style="display:inline-block;font-size:30px;line-height:1.2;font-weight:bold;color:#ffffff;padding:4px 8px;">Bob</span> 🎁</td></tr>
+</table>
+<p style="margin:0 0 16px;">Shh… it&#39;s a secret! 🤫 Please don&#39;t tell anyone who you have.</p>
+<p style="margin:0 0 16px;">Need ideas? Share your own wish list in the WhatsApp family chat so your Secret Santa knows what you&#39;d love.</p>
+<p style="margin:0 0 16px;">Merry Christmas and happy holidays!<br>Santa&#39;s Elf 🧝</p>
+    </td></tr>
+    <tr><td style="padding:0 28px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-top:2px dotted #f9c74f;font-size:0;line-height:0;">&nbsp;</td></tr></table></td></tr>
+    <tr><td align="center" style="padding:16px 28px 30px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-size:13px;line-height:1.5;color:#7a6f63;">
+      &#129323; This message is just for you. Please keep it a secret!
+    </td></tr>
+  </table>
+  <!--[if mso]></td></tr></table><![endif]-->
+</td></tr>
+</table>
+</body>
+</html>

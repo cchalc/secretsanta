@@ -1,0 +1,7 @@
+# Copy to .envrc (gitignored), fill in, then run `direnv allow`.
+#
+# EMAIL_HOST_PASSWORD must be a Gmail *App Password* (16 letters), not your
+# account password: https://support.google.com/accounts/answer/185833
+# Paste it without spaces.
+export EMAIL_HOST_USER="you@gmail.com"
+export EMAIL_HOST_PASSWORD="abcdefghijklmnop"

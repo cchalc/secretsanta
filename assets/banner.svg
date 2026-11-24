@@ -1,0 +1,151 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="420" viewBox="0 0 1200 420">
+  <!-- Original artwork for santa (no external assets). Rendered to banner.png with `just banner`. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a3326"/>
+      <stop offset="1" stop-color="#15693a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.45" r="0.55">
+      <stop offset="0" stop-color="#fff6d8" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#fff6d8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="snowBack" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dfeaf2"/>
+      <stop offset="1" stop-color="#c7d8e4"/>
+    </linearGradient>
+    <linearGradient id="snowFront" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e6eff6"/>
+    </linearGradient>
+    <g id="flake" stroke="#ffffff" stroke-width="3" stroke-linecap="round" fill="none">
+      <line x1="0" y1="-14" x2="0" y2="14"/>
+      <line x1="-12.1" y1="-7" x2="12.1" y2="7"/>
+      <line x1="-12.1" y1="7" x2="12.1" y2="-7"/>
+      <path d="M-4,-10 L0,-14 L4,-10 M-4,10 L0,14 L4,10"/>
+    </g>
+    <g id="tree">
+      <rect x="-14" y="-4" width="28" height="34" fill="#6d4c41"/>
+      <polygon points="0,-200 -62,-112 62,-112" fill="#2f9a5e"/>
+      <polygon points="0,-165 -88,-58 88,-58" fill="#268850"/>
+      <polygon points="0,-118 -114,0 114,0" fill="#1d7442"/>
+      <path d="M-62,-112 Q0,-96 62,-112 M-88,-58 Q0,-40 88,-58 M-114,0 Q0,16 114,0" stroke="#ffffff" stroke-opacity="0.55" stroke-width="5" fill="none"/>
+    </g>
+    <g id="smalltree">
+      <polygon points="0,-120 -40,-60 40,-60" fill="#2a6f4d"/>
+      <polygon points="0,-90 -55,0 55,0" fill="#235e41"/>
+      <path d="M-40,-60 Q0,-50 40,-60 M-55,0 Q0,10 55,0" stroke="#ffffff" stroke-opacity="0.6" stroke-width="4" fill="none"/>
+    </g>
+    <polygon id="star" points="0,-24 5.88,-8.09 22.83,-7.42 9.51,3.09 14.11,19.42 0,10 -14.11,19.42 -9.51,3.09 -22.83,-7.42 -5.88,-8.09"/>
+    <g id="bauble">
+      <rect x="-5" y="-26" width="10" height="8" rx="2" fill="#d4af37"/>
+      <circle r="20" cy="0"/>
+      <ellipse cx="-7" cy="-7" rx="5" ry="7" fill="#ffffff" fill-opacity="0.45"/>
+    </g>
+  </defs>
+
+  <!-- Sky -->
+  <rect width="1200" height="420" fill="url(#sky)"/>
+  <rect width="1200" height="420" fill="url(#glow)"/>
+
+  <!-- Moon -->
+  <mask id="crescent">
+    <rect width="1200" height="420" fill="#ffffff"/>
+    <circle cx="1090" cy="80" r="42" fill="#000000"/>
+  </mask>
+  <circle cx="1070" cy="92" r="46" fill="#fff4cf" mask="url(#crescent)"/>
+
+  <!-- Twinkling stars -->
+  <g fill="#ffe58a">
+    <use xlink:href="#star" transform="translate(330,70) scale(0.35)"/>
+    <use xlink:href="#star" transform="translate(880,55) scale(0.3)"/>
+    <use xlink:href="#star" transform="translate(960,170) scale(0.25)"/>
+    <use xlink:href="#star" transform="translate(280,190) scale(0.22)"/>
+    <use xlink:href="#star" transform="translate(760,95) scale(0.2)"/>
+  </g>
+
+  <!-- Hanging baubles -->
+  <g stroke="#d4af37" stroke-width="2">
+    <line x1="60" y1="0" x2="60" y2="64"/>
+    <line x1="140" y1="0" x2="140" y2="34"/>
+    <line x1="215" y1="0" x2="215" y2="86"/>
+  </g>
+  <use xlink:href="#bauble" transform="translate(60,90)" fill="#c62828"/>
+  <use xlink:href="#bauble" transform="translate(140,60) scale(0.85)" fill="#f9a825"/>
+  <use xlink:href="#bauble" transform="translate(215,112) scale(0.9)" fill="#1565c0"/>
+
+  <!-- Snowflakes -->
+  <g opacity="0.85">
+    <use xlink:href="#flake" transform="translate(420,60) scale(1.1)"/>
+    <use xlink:href="#flake" transform="translate(520,140) scale(0.7)"/>
+    <use xlink:href="#flake" transform="translate(690,40) scale(0.9)"/>
+    <use xlink:href="#flake" transform="translate(830,150) scale(1.2)"/>
+    <use xlink:href="#flake" transform="translate(1160,200) scale(0.8)"/>
+    <use xlink:href="#flake" transform="translate(370,230) scale(0.6)"/>
+    <use xlink:href="#flake" transform="translate(110,220) scale(1.0)"/>
+    <use xlink:href="#flake" transform="translate(990,260) scale(0.6)"/>
+  </g>
+  <g fill="#ffffff" fill-opacity="0.7">
+    <circle cx="300" cy="120" r="3"/><circle cx="460" cy="200" r="2.5"/><circle cx="560" cy="70" r="3"/>
+    <circle cx="640" cy="110" r="2"/><circle cx="740" cy="200" r="3"/><circle cx="900" cy="100" r="2.5"/>
+    <circle cx="1010" cy="210" r="3"/><circle cx="1130" cy="150" r="2"/><circle cx="30" cy="160" r="2.5"/>
+    <circle cx="250" cy="260" r="3"/><circle cx="1110" cy="280" r="2.5"/><circle cx="180" cy="300" r="2"/>
+    <circle cx="860" cy="250" r="2"/><circle cx="400" cy="140" r="2"/><circle cx="1180" cy="60" r="2.5"/>
+  </g>
+
+  <!-- Back snow hill and distant trees -->
+  <path d="M0,330 C180,290 330,300 470,322 C620,346 760,300 930,296 C1050,294 1130,310 1200,322 L1200,420 L0,420 Z" fill="url(#snowBack)"/>
+  <use xlink:href="#smalltree" transform="translate(250,318) scale(0.8)"/>
+  <use xlink:href="#smalltree" transform="translate(320,322) scale(0.55)"/>
+  <use xlink:href="#smalltree" transform="translate(960,300) scale(0.9)"/>
+  <use xlink:href="#smalltree" transform="translate(1040,306) scale(0.6)"/>
+
+  <!-- Main trees -->
+  <use xlink:href="#tree" transform="translate(445,352) scale(0.68)"/>
+  <use xlink:href="#tree" transform="translate(770,350) scale(0.74)"/>
+  <use xlink:href="#tree" transform="translate(600,345)"/>
+
+  <!-- Ornaments and lights on the big tree -->
+  <g>
+    <circle cx="575" cy="200" r="8" fill="#c62828"/>
+    <circle cx="628" cy="225" r="8" fill="#f9a825"/>
+    <circle cx="560" cy="262" r="9" fill="#1565c0"/>
+    <circle cx="640" cy="288" r="9" fill="#c62828"/>
+    <circle cx="600" cy="250" r="7" fill="#ffffff"/>
+    <circle cx="530" cy="318" r="9" fill="#f9a825"/>
+    <circle cx="668" cy="322" r="9" fill="#1565c0"/>
+    <circle cx="600" cy="305" r="8" fill="#f9a825"/>
+  </g>
+  <use xlink:href="#star" transform="translate(600,148) scale(1.25)" fill="#ffd54f" stroke="#fff3c4" stroke-width="2"/>
+
+  <!-- Front snow -->
+  <path d="M0,372 C160,350 330,356 480,368 C640,382 800,352 980,356 C1080,358 1150,366 1200,372 L1200,420 L0,420 Z" fill="url(#snowFront)"/>
+
+  <!-- Gifts -->
+  <g>
+    <!-- red box, gold ribbon -->
+    <rect x="478" y="326" width="78" height="58" rx="4" fill="#c62828"/>
+    <rect x="510" y="326" width="14" height="58" fill="#f9c74f"/>
+    <rect x="478" y="348" width="78" height="12" fill="#f9c74f"/>
+    <ellipse cx="507" cy="320" rx="13" ry="8" transform="rotate(-25 507 320)" fill="#f9c74f"/>
+    <ellipse cx="527" cy="320" rx="13" ry="8" transform="rotate(25 527 320)" fill="#f9c74f"/>
+    <circle cx="517" cy="324" r="5" fill="#e0a800"/>
+
+    <!-- gold box, red ribbon -->
+    <rect x="640" y="312" width="64" height="72" rx="4" fill="#f9a825"/>
+    <rect x="665" y="312" width="13" height="72" fill="#c62828"/>
+    <ellipse cx="662" cy="306" rx="12" ry="7" transform="rotate(-25 662 306)" fill="#c62828"/>
+    <ellipse cx="681" cy="306" rx="12" ry="7" transform="rotate(25 681 306)" fill="#c62828"/>
+    <circle cx="671" cy="309" r="5" fill="#8e1b1b"/>
+
+    <!-- blue box, white ribbon -->
+    <rect x="712" y="344" width="58" height="40" rx="4" fill="#1565c0"/>
+    <rect x="735" y="344" width="11" height="40" fill="#ffffff"/>
+    <rect x="712" y="358" width="58" height="10" fill="#ffffff"/>
+    <circle cx="740" cy="341" r="6" fill="#ffffff"/>
+
+    <!-- small green box -->
+    <rect x="420" y="352" width="48" height="34" rx="4" fill="#2e7d32"/>
+    <rect x="439" y="352" width="10" height="34" fill="#c62828"/>
+    <circle cx="444" cy="349" r="5" fill="#c62828"/>
+  </g>
+</svg>
