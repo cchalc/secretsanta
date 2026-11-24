@@ -1,0 +1,16 @@
+# Worktrunk project hooks (https://worktrunk.dev). Hooks only run after you
+# approve them once: `wt config approvals add`.
+
+# .envrc is gitignored (it holds the Gmail credentials), so a fresh worktree
+# has none. Symlink the primary checkout's copy (one source of truth, never
+# duplicated) and let direnv load it.
+[pre-start]
+envrc = """
+if [ -e "{{ primary_worktree_path }}/.envrc" ]; then
+  ln -sfn "{{ primary_worktree_path }}/.envrc" .envrc && direnv allow .
+fi
+"""
+
+# Same gate as before any commit: fmt, clippy (warnings are errors), all tests.
+[pre-merge]
+check = "just check"
