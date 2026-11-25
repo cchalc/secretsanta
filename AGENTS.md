@@ -13,7 +13,11 @@ Architecture section for the module map.
 
 1. **Never reveal or commit a pairing.** Sealed pairings, ledgers, previews and
    rehearsal emails live in `.santa/` and `outbox/`, both gitignored. Never
-   print, paste, log or `git add` them. Don't run `santa reveal` unless the
+   print, paste, log or `git add` them. The only pairing data that may be
+   committed is the age-**encrypted** history backup `history/*.history.age`
+   (plus the public keys in `history/recipients.txt`). Never commit plaintext
+   history, and never read, print or commit the secret key
+   (`~/.config/santa/age-key.txt`). Don't run `santa reveal` unless the
    organizer explicitly asks. Violations and diagnostics carry participant
    *indices*, never names. Keep it that way.
 2. **Never send real email without an explicit go-ahead** for that specific

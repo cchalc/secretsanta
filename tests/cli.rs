@@ -907,3 +907,194 @@ fn state_is_per_roster() {
     assert!(e.path(".santa/family/pairing.json").exists());
     assert!(e.path(".santa/office/pairing.json").exists());
 }
+
+// --------------------------------------------------------- history backup ---
+
+/// Set up `history/recipients.txt` with a fresh key; returns the identity file name.
+fn enable_backups(e: &Env) -> &'static str {
+    use age::secrecy::ExposeSecret;
+    let identity = age::x25519::Identity::generate();
+    fs::create_dir_all(e.path("history")).unwrap();
+    fs::write(
+        e.path("history/recipients.txt"),
+        format!("# organizer\n{}\n", identity.to_public()),
+    )
+    .unwrap();
+    fs::write(
+        e.path("key.txt"),
+        format!("# secret\n{}\n", identity.to_string().expose_secret()),
+    )
+    .unwrap();
+    "key.txt"
+}
+
+fn deliver(e: &Env, year: &str, seed: &str) -> String {
+    e.santa()
+        .args(["pair", "family.csv", "--year", year, "--seed", seed])
+        .assert()
+        .success();
+    stdout_of(
+        e.santa()
+            .args(["send", "family.csv", "--outbox", "outbox"])
+            .write_stdin("send 6\n"),
+    )
+}
+
+fn assert_no_people(text: &str) {
+    for name in NAMES {
+        assert!(!text.contains(name), "leaks {name}:\n{text}");
+        assert!(
+            !text.contains(&address(name)),
+            "leaks {name}'s email:\n{text}"
+        );
+    }
+}
+
+#[test]
+fn completed_send_writes_an_encrypted_backup_that_restores_after_a_wipe() {
+    let e = Env::new();
+    let key = enable_backups(&e);
+    let out = deliver(&e, "2025", "11");
+    assert!(out.contains("history/family.history.age"), "{out}");
+    assert!(out.contains("commit and push"), "{out}");
+
+    let backup = fs::read_to_string(e.path("history/family.history.age")).unwrap();
+    assert!(backup.starts_with("-----BEGIN AGE ENCRYPTED FILE-----"));
+    assert_no_people(&backup);
+    assert!(!backup.contains("example.com"));
+
+    // The laptop is wiped: all private state is gone, the repo is re-cloned.
+    let first = e.receivers();
+    fs::remove_dir_all(e.path(".santa")).unwrap();
+    let restored = stdout_of(e.santa().env("SANTA_AGE_IDENTITY", key).args([
+        "history",
+        "restore",
+        "family.csv",
+    ]));
+    assert!(restored.contains("Restored 1 run"), "{restored}");
+    assert!(restored.contains("6/6 people"), "{restored}");
+    assert_no_people(&restored);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(e.path(".santa/family/history.json"))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    // The restored history still drives the no-repeat rule.
+    e.santa()
+        .args(["pair", "family.csv", "--year", "2026", "--seed", "12"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("avoided 6 delivered edges"));
+    let second = e.receivers();
+    assert!(first.iter().zip(&second).all(|(a, b)| a != b));
+}
+
+#[test]
+fn restore_check_reports_drift_and_refuses_to_overwrite_newer_history() {
+    let e = Env::new();
+    let key = enable_backups(&e);
+    deliver(&e, "2025", "11");
+    e.santa()
+        .args([
+            "history",
+            "restore",
+            "family.csv",
+            "--identity",
+            key,
+            "--check",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("backup matches local history"));
+
+    let old_backup = fs::read(e.path("history/family.history.age")).unwrap();
+    deliver(&e, "2026", "12");
+    let local_before = fs::read(e.path(".santa/family/history.json")).unwrap();
+    fs::write(e.path("history/family.history.age"), &old_backup).unwrap();
+
+    e.santa()
+        .args([
+            "history",
+            "restore",
+            "family.csv",
+            "--identity",
+            key,
+            "--check",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "backup differs from local history",
+        ))
+        .stdout(predicate::str::contains("backup: 1 run"))
+        .stdout(predicate::str::contains("local: 2 runs"));
+    e.santa()
+        .args(["history", "restore", "family.csv", "--identity", key])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--force"));
+    assert_eq!(
+        fs::read(e.path(".santa/family/history.json")).unwrap(),
+        local_before,
+        "refused restore leaves local history untouched"
+    );
+
+    // `history backup` re-encrypts the current local history on demand.
+    e.santa()
+        .args(["history", "backup", "family.csv"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("2 runs"));
+    e.santa()
+        .args([
+            "history",
+            "restore",
+            "family.csv",
+            "--identity",
+            key,
+            "--check",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("backup matches local history"));
+}
+
+#[test]
+fn wrong_key_restores_nothing() {
+    let e = Env::new();
+    enable_backups(&e);
+    deliver(&e, "2025", "11");
+    fs::remove_dir_all(e.path(".santa")).unwrap();
+    use age::secrecy::ExposeSecret;
+    let other = age::x25519::Identity::generate();
+    fs::write(e.path("other.txt"), other.to_string().expose_secret()).unwrap();
+    e.santa()
+        .args([
+            "history",
+            "restore",
+            "family.csv",
+            "--identity",
+            "other.txt",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("wrong key"));
+    assert!(!e.path(".santa/family/history.json").exists());
+}
+
+#[test]
+fn without_recipients_no_backup_is_written() {
+    let e = Env::new();
+    deliver(&e, "2025", "11");
+    assert!(!e.path("history").exists());
+    e.santa()
+        .args(["history", "backup", "family.csv"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("history/recipients.txt"));
+}

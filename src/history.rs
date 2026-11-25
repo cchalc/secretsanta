@@ -136,6 +136,25 @@ impl History {
             .is_some()
     }
 
+    /// How many distinct people in this history (by email) are on `roster`,
+    /// out of how many in total. A shortfall means someone's address changed,
+    /// so their past assignments no longer block repeats.
+    pub fn people_on_roster(&self, roster: &Roster) -> (usize, usize) {
+        let on_roster: HashSet<String> = roster
+            .participants()
+            .iter()
+            .map(|participant| participant.email_key())
+            .collect();
+        let people: HashSet<&str> = self
+            .runs
+            .iter()
+            .flat_map(|run| &run.assignments)
+            .flat_map(|edge| [edge.giver.as_str(), edge.receiver.as_str()])
+            .collect();
+        let matched = people.iter().filter(|p| on_roster.contains(**p)).count();
+        (matched, people.len())
+    }
+
     pub fn runs_in_year(&self, year: i32) -> usize {
         self.runs.iter().filter(|run| run.year == year).count()
     }
