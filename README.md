@@ -43,13 +43,45 @@ Whitespace is trimmed and emails are validated. Duplicate names and emails are r
 just install                     # puts `santa` on your PATH (re-run after code changes)
 
 santa check   list_holtby.csv    # validate, explain any accommodation, count valid pairings
-santa pair    list_holtby.csv    # draw and seal a pairing → .santa/list_holtby/pairing.json
+santa history import-legacy list_holtby.csv pairs.csv --year 2025
+santa pair    list_holtby.csv --year 2026    # excludes every delivered 2025 assignment
 santa verify  list_holtby.csv    # re-check the seal (prints no names)
 santa send    list_holtby.csv --dry-run   # every email with the receiver redacted, plus an HTML preview file
 santa test-email                 # one sample email to yourself (EMAIL_HOST_USER)
 santa send    list_holtby.csv    # asks you to type `send N`, then emails everyone
 santa reveal  list_holtby.csv --giver Nick   # recovery only: spoils one pairing
 ```
+
+### History, corrections and simulation
+
+Completed deliveries are recorded in owner-only
+`.santa/<list>/history.json`. A new annual draw excludes every giver/receiver
+edge delivered in the previous calendar year. If more than one result was
+delivered during a correction year, the following year avoids both notices.
+Roster rows may be reordered because history matches participants by normalized
+email address.
+
+Use `santa correct <list> --year <year>` only after a disclosed run. It archives
+the old result, draws a replacement in which every participant changes receiver,
+and keeps only corrections that leave a feasible next-year draw. Correction
+email automatically uses the one-off yeti explanation; normal sends keep the
+normal template. A real correction send also requires
+`--banner <yeti-image.png>` and refuses the normal artwork.
+
+`santa simulate <list> --correction --years 5 --format json` performs the
+correction and future draws in memory. Its text and JSON contain aggregate
+candidate counts and QC metrics only—never assignments, names, emails or
+receiver indices. `just simulate-history` logs an ordinary aggregate forecast,
+and `just simulate-history correction=true` includes an active correction.
+Both log through
+MLflow 3.6 to the private local `.santa/mlflow.db` store. It does not contact
+Databricks or use a CLI profile, REST API or credentials.
+
+`just visualize-history` uses the MLflow CLI to export the latest correction
+run and download its aggregate `simulation.json` artifact, then writes a
+self-contained dashboard with inline SVG charts to
+`.santa/reports/history-qc.html`. Use `correction=false` for the latest ordinary
+forecast. The report is owner-only and contains no participant or pairing data.
 
 Email options:
 - `--template file.txt`: first line `Subject: ...`, then a blank line, then paragraphs separated by blank lines. Placeholders are `{giver}`, `{receiver}` and `{year}`. `{receiver}` is required in the body and forbidden in the subject. The paragraph that mentions `{receiver}` becomes the highlighted card.
@@ -103,6 +135,7 @@ roster.csv ─parse (accumulate errors)─▶ Roster ─solve_with_accommodation
 | `seal` | Sealed pairing bound to the roster fingerprint and policy. `verify` rejects tampering and non-minimal accommodations |
 | `template` | Parses a template once into `Text \| Giver \| Receiver \| Year` segments and renders in a single pass, so substituted values are never re-expanded |
 | `html` | Table-based layout with inline styles, an inline banner (`cid:banner`), a hidden preview line and the reveal card. Everything is HTML-escaped |
+| `history` | Owner-only delivered-run log and previous-year giver/receiver exclusions, keyed by normalized email so roster reordering is safe |
 | `message` | `Letter` (text + HTML) and the MIME build: `multipart/alternative[text, related[html, banner]]` |
 | `mailer` | `Mailer` trait: `SmtpMailer` (pooled, with a preflight connection test) and `OutboxMailer` (rehearsal `.eml` files) |
 | `send` | `plan` → `select` → `deliver`. The ledger is saved after every success, and delivery stops at the first failure |
@@ -123,7 +156,7 @@ roster.csv ─parse (accumulate errors)─▶ Roster ─solve_with_accommodation
 
 ## Testing
 
-`just check` runs fmt, clippy (warnings as errors) and the suite. `just test` runs the suite alone: **102 tests**.
+`just check` runs fmt, clippy (warnings as errors) and the suite. `just test` runs the suite alone: **109 tests**.
 
 - **Brute-force oracles** (`tests/oracle.rs`), independent code that checks every permutation:
   - pairing counts on the real lists (holtby 32, testing 2, chalcraft 0);

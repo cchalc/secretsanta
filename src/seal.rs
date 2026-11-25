@@ -7,17 +7,24 @@ use sha2::{Digest, Sha256};
 
 use crate::accommodate::minimal_policy;
 use crate::domain::{Assignment, AssignmentError, Roster, hex};
+use crate::history::RunKind;
 use crate::rules::{Policy, Violation};
 use crate::solver::{Method, Solution};
 
-/// v2 added the policy (accommodations) to the seal.
-pub const SEAL_VERSION: u32 = 2;
+/// v2 added accommodations; v3 adds the calendar year and normal/correction
+/// run kind. v2 remains readable so an already-delivered run can be corrected.
+pub const SEAL_VERSION: u32 = 3;
+pub const MIN_SEAL_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sealed {
     pub version: u32,
     pub roster_fingerprint: String,
     pub created_unix: u64,
+    #[serde(default)]
+    pub year: Option<i32>,
+    #[serde(default)]
+    pub kind: RunKind,
     /// "uniform-sample" or "search".
     pub method: String,
     /// The rules (and any accommodation) the pairing was drawn under.
@@ -27,11 +34,20 @@ pub struct Sealed {
 }
 
 impl Sealed {
-    pub fn new(roster: &Roster, solution: &Solution, policy: &Policy, created_unix: u64) -> Self {
+    pub fn new(
+        roster: &Roster,
+        solution: &Solution,
+        policy: &Policy,
+        created_unix: u64,
+        year: i32,
+        kind: RunKind,
+    ) -> Self {
         Sealed {
             version: SEAL_VERSION,
             roster_fingerprint: roster.fingerprint(),
             created_unix,
+            year: Some(year),
+            kind,
             method: match solution.method {
                 Method::Sampled { .. } => "uniform-sample".into(),
                 Method::Searched => "search".into(),
@@ -43,10 +59,19 @@ impl Sealed {
 
     /// Identifies this exact pairing (used to bind the send ledger to it).
     pub fn pairing_id(&self) -> String {
-        let h = self.receivers.iter().fold(
-            Sha256::new().chain_update(self.roster_fingerprint.as_bytes()),
-            |h, r| h.chain_update((*r as u64).to_le_bytes()),
-        );
+        let mut h = Sha256::new().chain_update(self.roster_fingerprint.as_bytes());
+        if self.version >= 3 {
+            h = h
+                .chain_update(self.year.unwrap_or_default().to_le_bytes())
+                .chain_update([match self.kind {
+                    RunKind::Normal => 0,
+                    RunKind::Correction => 1,
+                }]);
+        }
+        let h = self
+            .receivers
+            .iter()
+            .fold(h, |h, r| h.chain_update((*r as u64).to_le_bytes()));
         hex(&h.finalize())
     }
 }
@@ -54,7 +79,7 @@ impl Sealed {
 #[derive(Debug, thiserror::Error)]
 pub enum VerifyError {
     #[error(
-        "sealed pairing has unsupported version {0} (expected {SEAL_VERSION}); re-run `santa pair`"
+        "sealed pairing has unsupported version {0} (expected {MIN_SEAL_VERSION} or {SEAL_VERSION}); re-run `santa pair`"
     )]
     Version(u32),
     #[error(
@@ -83,7 +108,7 @@ pub fn verify(
     base: &Policy,
     node_budget: u64,
 ) -> Result<Assignment, VerifyError> {
-    if sealed.version != SEAL_VERSION {
+    if !(MIN_SEAL_VERSION..=SEAL_VERSION).contains(&sealed.version) {
         return Err(VerifyError::Version(sealed.version));
     }
     if sealed.roster_fingerprint != roster.fingerprint() {
@@ -121,6 +146,8 @@ mod tests {
             version: SEAL_VERSION,
             roster_fingerprint: roster.fingerprint(),
             created_unix: 0,
+            year: Some(2026),
+            kind: RunKind::Normal,
             method: "uniform-sample".into(),
             policy,
             receivers,

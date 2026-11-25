@@ -10,6 +10,7 @@ pub mod accommodate;
 pub mod cli;
 pub mod domain;
 pub mod files;
+pub mod history;
 pub mod html;
 pub mod mailer;
 pub mod message;
