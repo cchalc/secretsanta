@@ -46,11 +46,13 @@ Architecture section for the module map.
 | `just lint` / `just fmt-check` | clippy / rustfmt alone |
 | `just bench` | criterion benchmarks (`benches/solve.rs`); update the README table if numbers move |
 | `just build` / `just install` | release build / install `santa` onto PATH (re-run after code changes) |
-| `just banner` | re-render `assets/banner.svg` → `assets/banner.png` |
+| `just banner` | re-render `assets/banner.svg` → `banner.png` and `assets/yeti.svg` → `yeti.png` |
 | `just mailpit` | local SMTP inbox on :1025, web UI at http://127.0.0.1:8025 |
 | `just smoke-local` | one sample email into Mailpit |
 | `just rehearse-local [list]` | full pair + send of a list into Mailpit (throwaway state dir) |
 | `just smoke-gmail` | one real `[TEST]` email to `EMAIL_HOST_USER` via Gmail |
+| `just rehearse-correction` | synthetic correction run (temp state, example.com) with its 6 emails into Mailpit |
+| `just smoke-gmail-correction` | one real `[TEST]` correction email (yeti copy + banner) to `EMAIL_HOST_USER` |
 
 ## Version control: jj (colocated with git)
 
@@ -160,6 +162,6 @@ Agents creating worktrees from a non-interactive session should use
 - **Before any real send:**
   1. `just check`;
   2. `santa check`, `pair`, `verify`, `send --dry-run`;
-  3. `just rehearse-local`;
-  4. `just smoke-gmail`;
+  3. `just rehearse-local` (for a correction: `just rehearse-correction`);
+  4. `just smoke-gmail` (for a correction: `just smoke-gmail-correction`);
   5. then the real `santa send`, typing `send N` at the prompt.

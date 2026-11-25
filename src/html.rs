@@ -97,7 +97,7 @@ pub fn render(template: &Template, fill: Fill) -> String {
   <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="{SNOW}" style="width:100%;max-width:600px;background-color:{SNOW};border-radius:16px;overflow:hidden;">
     <tr><td style="padding:0;line-height:0;">
-      <img src="cid:{BANNER_CID}" width="600" alt="Christmas trees, presents and falling snow" style="display:block;width:100%;max-width:600px;height:auto;border:0;">
+      <img src="cid:{BANNER_CID}" width="600" alt="Secret Santa holiday banner" style="display:block;width:100%;max-width:600px;height:auto;border:0;">
     </td></tr>
     <tr><td align="center" style="padding:26px 32px 4px;font-family:{SERIF};font-size:30px;line-height:1.2;font-weight:bold;color:{BERRY};">
       Secret Santa {year}

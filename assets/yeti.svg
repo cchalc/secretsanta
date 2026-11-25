@@ -1,0 +1,229 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1200" height="420" viewBox="0 0 1200 420">
+  <!-- Original artwork for santa's correction email (no external assets): a
+       sheepish yeti who fat-fingered the pairing keyboard. Rendered to
+       yeti.png with `just banner`. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a3326"/>
+      <stop offset="1" stop-color="#15693a"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.45" r="0.55">
+      <stop offset="0" stop-color="#fff6d8" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#fff6d8" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="peak" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f8a86"/>
+      <stop offset="1" stop-color="#2f645c"/>
+    </linearGradient>
+    <linearGradient id="snowBack" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dfeaf2"/>
+      <stop offset="1" stop-color="#c7d8e4"/>
+    </linearGradient>
+    <linearGradient id="snowFront" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e6eff6"/>
+    </linearGradient>
+    <g id="flake" stroke="#ffffff" stroke-width="3" stroke-linecap="round" fill="none">
+      <line x1="0" y1="-14" x2="0" y2="14"/>
+      <line x1="-12.1" y1="-7" x2="12.1" y2="7"/>
+      <line x1="-12.1" y1="7" x2="12.1" y2="-7"/>
+      <path d="M-4,-10 L0,-14 L4,-10 M-4,10 L0,14 L4,10"/>
+    </g>
+    <polygon id="star" points="0,-24 5.88,-8.09 22.83,-7.42 9.51,3.09 14.11,19.42 0,10 -14.11,19.42 -9.51,3.09 -22.83,-7.42 -5.88,-8.09"/>
+    <g id="tree">
+      <rect x="-14" y="-4" width="28" height="34" fill="#6d4c41"/>
+      <polygon points="0,-200 -62,-112 62,-112" fill="#2f9a5e"/>
+      <polygon points="0,-165 -88,-58 88,-58" fill="#268850"/>
+      <polygon points="0,-118 -114,0 114,0" fill="#1d7442"/>
+      <path d="M-62,-112 Q0,-96 62,-112 M-88,-58 Q0,-40 88,-58 M-114,0 Q0,16 114,0" stroke="#ffffff" stroke-opacity="0.55" stroke-width="5" fill="none"/>
+    </g>
+    <!-- A name slip from the hat: blank paper with scribble lines, no text. -->
+    <g id="slip">
+      <rect x="-20" y="-13" width="40" height="26" rx="3" fill="#fffdf5" stroke="#d9cfb0" stroke-width="2"/>
+      <path d="M-12,-4 L12,-4 M-12,4 L6,4" stroke="#9aa9b3" stroke-width="3" stroke-linecap="round"/>
+    </g>
+
+    <!-- Yeti silhouette pieces. Drawn twice: once fat and blue-grey as the
+         outline, once on top in snowy white, so the fur reads as one shape. -->
+    <g id="yetiBack">
+      <ellipse cx="600" cy="305" rx="122" ry="112"/>
+      <circle cx="488" cy="285" r="28"/>
+      <circle cx="712" cy="285" r="28"/>
+      <circle cx="494" cy="345" r="30"/>
+      <circle cx="706" cy="345" r="30"/>
+      <circle cx="600" cy="188" r="84"/>
+      <circle cx="528" cy="160" r="24"/>
+      <circle cx="672" cy="160" r="24"/>
+      <circle cx="534" cy="226" r="22"/>
+      <circle cx="666" cy="226" r="22"/>
+    </g>
+    <!-- Right arm (viewer's right) scratching the head. -->
+    <g id="yetiScratch">
+      <ellipse cx="722" cy="222" rx="30" ry="64" transform="rotate(-12 722 222)"/>
+      <circle cx="704" cy="152" r="28"/>
+      <circle cx="684" cy="134" r="11"/>
+      <circle cx="700" cy="125" r="11"/>
+      <circle cx="717" cy="129" r="11"/>
+    </g>
+    <!-- Left arm (viewer's left) jabbing the tiny keyboard with one big finger. -->
+    <g id="yetiPoke">
+      <ellipse cx="526" cy="292" rx="30" ry="58" transform="rotate(-38 526 292)"/>
+      <circle cx="566" cy="322" r="27"/>
+      <ellipse cx="584" cy="342" rx="10" ry="16" transform="rotate(-30 584 342)"/>
+    </g>
+  </defs>
+
+  <!-- Sky -->
+  <rect width="1200" height="420" fill="url(#sky)"/>
+  <rect width="1200" height="420" fill="url(#glow)"/>
+
+  <!-- Moon -->
+  <mask id="crescent">
+    <rect width="1200" height="420" fill="#ffffff"/>
+    <circle cx="1090" cy="80" r="42" fill="#000000"/>
+  </mask>
+  <circle cx="1070" cy="92" r="46" fill="#fff4cf" mask="url(#crescent)"/>
+
+  <!-- Twinkling stars -->
+  <g fill="#ffe58a">
+    <use xlink:href="#star" transform="translate(90,60) scale(0.35)"/>
+    <use xlink:href="#star" transform="translate(330,40) scale(0.3)"/>
+    <use xlink:href="#star" transform="translate(900,55) scale(0.3)"/>
+    <use xlink:href="#star" transform="translate(980,160) scale(0.22)"/>
+    <use xlink:href="#star" transform="translate(240,150) scale(0.22)"/>
+  </g>
+
+  <!-- Mountains -->
+  <path d="M0,300 L110,190 L190,250 L330,120 L470,290 L470,330 L0,330 Z" fill="url(#peak)"/>
+  <path d="M730,300 L880,130 L990,240 L1080,170 L1200,280 L1200,330 L730,330 Z" fill="url(#peak)"/>
+  <g fill="#ffffff" fill-opacity="0.92">
+    <path d="M110,190 L135,215 L120,210 L104,222 L92,208 Z"/>
+    <path d="M330,120 L368,166 L346,158 L328,172 L310,156 L292,166 Z"/>
+    <path d="M880,130 L918,173 L896,166 L878,180 L860,163 L842,173 Z"/>
+    <path d="M1080,170 L1108,196 L1090,192 L1074,204 L1060,190 Z"/>
+  </g>
+
+  <!-- Snowflakes -->
+  <g opacity="0.85">
+    <use xlink:href="#flake" transform="translate(420,50) scale(1.0)"/>
+    <use xlink:href="#flake" transform="translate(790,60) scale(0.8)"/>
+    <use xlink:href="#flake" transform="translate(160,110) scale(0.7)"/>
+    <use xlink:href="#flake" transform="translate(1150,210) scale(0.8)"/>
+    <use xlink:href="#flake" transform="translate(40,230) scale(0.9)"/>
+    <use xlink:href="#flake" transform="translate(1010,90) scale(0.6)"/>
+  </g>
+  <g fill="#ffffff" fill-opacity="0.7">
+    <circle cx="300" cy="90" r="3"/><circle cx="460" cy="150" r="2.5"/><circle cx="540" cy="40" r="3"/>
+    <circle cx="660" cy="30" r="2"/><circle cx="760" cy="150" r="3"/><circle cx="940" cy="110" r="2.5"/>
+    <circle cx="1130" cy="140" r="2"/><circle cx="30" cy="150" r="2.5"/><circle cx="250" cy="230" r="3"/>
+    <circle cx="1170" cy="40" r="2.5"/><circle cx="830" cy="230" r="2"/><circle cx="380" cy="210" r="2"/>
+  </g>
+
+  <!-- Back snow hill and trees -->
+  <path d="M0,330 C180,290 330,300 470,322 C620,346 760,300 930,296 C1050,294 1130,310 1200,322 L1200,420 L0,420 Z" fill="url(#snowBack)"/>
+  <use xlink:href="#tree" transform="translate(190,350) scale(0.8)"/>
+  <use xlink:href="#tree" transform="translate(320,356) scale(0.55)"/>
+  <use xlink:href="#tree" transform="translate(1040,352) scale(0.75)"/>
+
+  <!-- The yeti -->
+  <use xlink:href="#yetiBack" fill="#9db5c8" stroke="#9db5c8" stroke-width="10"/>
+  <use xlink:href="#yetiBack" fill="#f5f9fc"/>
+  <!-- belly and fur texture -->
+  <ellipse cx="600" cy="330" rx="70" ry="66" fill="#e3edf5"/>
+  <g stroke="#c3d4e2" stroke-width="4" stroke-linecap="round" fill="none">
+    <path d="M520,300 q8,8 16,0"/><path d="M664,300 q8,8 16,0"/>
+    <path d="M580,300 q8,8 16,0"/><path d="M610,336 q8,8 16,0"/>
+    <path d="M572,360 q8,8 16,0"/><path d="M640,370 q8,8 16,0"/>
+  </g>
+
+  <!-- face -->
+  <ellipse cx="600" cy="202" rx="60" ry="52" fill="#c9dbe8"/>
+  <g fill="#ffffff">
+    <ellipse cx="578" cy="190" rx="14" ry="16"/>
+    <ellipse cx="622" cy="190" rx="14" ry="16"/>
+  </g>
+  <g fill="#263238">
+    <circle cx="575" cy="195" r="7.5"/>
+    <circle cx="619" cy="195" r="7.5"/>
+  </g>
+  <g fill="#ffffff">
+    <circle cx="578" cy="192" r="2.5"/>
+    <circle cx="622" cy="192" r="2.5"/>
+  </g>
+  <!-- worried, sheepish eyebrows: inner ends raised -->
+  <g stroke="#5d7486" stroke-width="5" stroke-linecap="round" fill="none">
+    <path d="M560,170 Q572,168 588,160"/>
+    <path d="M612,160 Q628,168 640,170"/>
+  </g>
+  <ellipse cx="600" cy="212" rx="10" ry="7" fill="#5d7486"/>
+  <!-- oops grin with one tooth -->
+  <path d="M580,228 Q600,246 620,228 Q600,236 580,228 Z" fill="#6d4c41"/>
+  <rect x="603" y="231" width="7" height="6" rx="1.5" fill="#ffffff"/>
+  <g fill="#f48fb1" fill-opacity="0.55">
+    <circle cx="556" cy="218" r="9"/>
+    <circle cx="644" cy="218" r="9"/>
+  </g>
+
+  <!-- Santa hat, slipping to one side -->
+  <path d="M536,122 C548,64 612,36 670,50 C702,58 722,82 724,108 L666,114 Z" fill="#c62828"/>
+  <path d="M556,104 C574,74 612,58 646,60" stroke="#e53935" stroke-width="8" stroke-linecap="round" fill="none"/>
+  <path d="M528,128 L674,114" stroke="#dfe7ee" stroke-width="32" stroke-linecap="round"/>
+  <path d="M528,128 L674,114" stroke="#ffffff" stroke-width="26" stroke-linecap="round"/>
+  <circle cx="726" cy="110" r="18" fill="#dfe7ee"/>
+  <circle cx="726" cy="110" r="15" fill="#ffffff"/>
+
+  <!-- scratching arm -->
+  <use xlink:href="#yetiScratch" fill="#9db5c8" stroke="#9db5c8" stroke-width="10"/>
+  <use xlink:href="#yetiScratch" fill="#f5f9fc"/>
+
+  <!-- Front snow -->
+  <path d="M0,372 C160,350 330,356 480,368 C640,382 800,352 980,356 C1080,358 1150,366 1200,372 L1200,420 L0,420 Z" fill="url(#snowFront)"/>
+
+  <!-- Gift box used as a desk, with a keyboard far too small for a yeti -->
+  <rect x="510" y="356" width="170" height="64" rx="5" fill="#c62828"/>
+  <rect x="586" y="356" width="18" height="64" fill="#f9c74f"/>
+  <rect x="520" y="336" width="150" height="24" rx="5" fill="#37474f"/>
+  <g fill="#cfd8dc">
+    <rect x="528" y="341" width="12" height="6" rx="1.5"/><rect x="544" y="341" width="12" height="6" rx="1.5"/>
+    <rect x="560" y="341" width="12" height="6" rx="1.5"/><rect x="576" y="341" width="12" height="6" rx="1.5"/>
+    <rect x="592" y="341" width="12" height="6" rx="1.5"/><rect x="608" y="341" width="12" height="6" rx="1.5"/>
+    <rect x="624" y="341" width="12" height="6" rx="1.5"/><rect x="640" y="341" width="12" height="6" rx="1.5"/>
+    <rect x="534" y="350" width="12" height="6" rx="1.5"/><rect x="550" y="350" width="12" height="6" rx="1.5"/>
+    <rect x="566" y="350" width="12" height="6" rx="1.5"/><rect x="582" y="350" width="40" height="6" rx="1.5"/>
+    <rect x="626" y="350" width="12" height="6" rx="1.5"/><rect x="642" y="350" width="12" height="6" rx="1.5"/>
+  </g>
+
+  <!-- poking arm, then the "boop" sparks -->
+  <use xlink:href="#yetiPoke" fill="#9db5c8" stroke="#9db5c8" stroke-width="10"/>
+  <use xlink:href="#yetiPoke" fill="#f5f9fc"/>
+  <g stroke="#ffd54f" stroke-width="4" stroke-linecap="round">
+    <line x1="612" y1="330" x2="626" y2="320"/>
+    <line x1="616" y1="346" x2="634" y2="344"/>
+    <line x1="560" y1="362" x2="548" y2="374"/>
+  </g>
+
+  <!-- Name slips flying out of the hat -->
+  <use xlink:href="#slip" transform="translate(420,120) rotate(-22)"/>
+  <use xlink:href="#slip" transform="translate(470,215) rotate(14)"/>
+  <use xlink:href="#slip" transform="translate(790,120) rotate(28)"/>
+  <use xlink:href="#slip" transform="translate(830,215) rotate(-16)"/>
+  <use xlink:href="#slip" transform="translate(900,285) rotate(8) scale(0.85)"/>
+  <use xlink:href="#slip" transform="translate(760,320) rotate(-30) scale(0.8)"/>
+
+  <!-- the hat the names came from, knocked over in the snow -->
+  <g transform="translate(905,360) rotate(-28)">
+    <rect x="-50" y="-6" width="100" height="14" rx="7" fill="#263238"/>
+    <rect x="-34" y="-62" width="68" height="60" rx="5" fill="#263238"/>
+    <rect x="-34" y="-20" width="68" height="12" fill="#c62828"/>
+    <ellipse cx="-34" cy="-34" rx="6" ry="27" fill="#455a64"/>
+  </g>
+
+  <!-- a couple of presents -->
+  <rect x="300" y="352" width="58" height="42" rx="4" fill="#1565c0"/>
+  <rect x="323" y="352" width="11" height="42" fill="#ffffff"/>
+  <rect x="300" y="366" width="58" height="10" fill="#ffffff"/>
+  <circle cx="328" cy="349" r="6" fill="#ffffff"/>
+  <rect x="1060" y="346" width="64" height="48" rx="4" fill="#f9a825"/>
+  <rect x="1085" y="346" width="13" height="48" fill="#c62828"/>
+  <circle cx="1091" cy="343" r="6" fill="#8e1b1b"/>
+</svg>
