@@ -36,7 +36,13 @@ struct Email {
     text: String,
     html: String,
     inline_images: usize,
+    /// Bytes of the inline `cid:banner` image (empty if none).
+    banner: Vec<u8>,
 }
+
+/// Built-in artwork, read from the same files the binary embeds.
+const TREES_ART: &[u8] = include_bytes!("../assets/banner.png");
+const YETI_ART: &[u8] = include_bytes!("../assets/yeti.png");
 
 fn parse_eml(path: &std::path::Path) -> Email {
     let bytes = fs::read(path).unwrap();
@@ -51,7 +57,31 @@ fn parse_eml(path: &std::path::Path) -> Email {
             .attachments()
             .filter(|a| a.content_id() == Some("banner"))
             .count(),
+        banner: msg
+            .attachments()
+            .find(|a| a.content_id() == Some("banner"))
+            .map(|a| a.contents().to_vec())
+            .unwrap_or_default(),
     }
+}
+
+/// Deliver a 2025 and a 2026 run, then seal a 2026 correction for `family.csv`.
+fn seal_correction(e: &Env) {
+    for (year, seed) in [("2025", "21"), ("2026", "22")] {
+        e.santa()
+            .args(["pair", "family.csv", "--year", year, "--seed", seed])
+            .assert()
+            .success();
+        e.santa()
+            .args(["send", "family.csv", "--outbox", "outbox"])
+            .write_stdin("send 6\n")
+            .assert()
+            .success();
+    }
+    e.santa()
+        .args(["correct", "family.csv", "--year", "2026", "--seed", "23"])
+        .assert()
+        .success();
 }
 
 const CHALCRAFT_SHAPE: &str = "Timestamp,Full Name,Room number,Email address\n1,Annabel,1,annabel@x.com\n1,Barnaby,1,barnaby@x.com\n1,Cosima,2,cosima@x.com\n1,Desmond,3,desmond@x.com\n1,Evangeline,3,evangeline@x.com\n";
@@ -640,11 +670,110 @@ fn correction_changes_every_assignment_and_uses_correction_copy() {
         .success()
         .stdout(predicate::str::contains("horrible yeti"))
         .stdout(predicate::str::contains("pieces of paper in a hat"));
+
+    // The real send uses the built-in yeti art without any --banner flag.
     e.santa()
-        .args(["send", "family.csv", "--outbox", "outbox"])
+        .args(["send", "family.csv", "--outbox", "corrected"])
+        .write_stdin("send 6\n")
         .assert()
-        .code(1)
-        .stderr(predicate::str::contains("requires `--banner"));
+        .success();
+    let mut files: Vec<PathBuf> = fs::read_dir(e.path("corrected"))
+        .unwrap()
+        .map(|f| f.unwrap().path())
+        .collect();
+    files.sort();
+    assert_eq!(files.len(), 6);
+    for (giver, name) in NAMES.iter().enumerate() {
+        let addr = address(name);
+        let file = files
+            .iter()
+            .find(|f| f.to_string_lossy().ends_with(&format!("{addr}.eml")))
+            .unwrap();
+        let email = parse_eml(file);
+        assert_eq!(
+            email.subject,
+            "🏔️ Corrected 2026 Family Secret Santa assignment"
+        );
+        assert!(email.text.contains("horrible yeti"));
+        assert!(email.html.contains("horrible yeti"));
+        assert_eq!(email.inline_images, 1);
+        assert!(email.banner == YETI_ART, "correction uses the yeti banner");
+        let expected = NAMES[corrected[giver]];
+        assert!(email.text.contains(&format!("🎁 {expected} 🎁")));
+        for (i, other) in NAMES.iter().enumerate() {
+            if i != giver && i != corrected[giver] {
+                assert!(
+                    !email.text.contains(other) && !email.html.contains(other),
+                    "{addr}'s correction email mentions {other}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn correction_refuses_the_normal_artwork() {
+    let e = Env::new();
+    seal_correction(&e);
+    fs::write(e.path("trees.png"), TREES_ART).unwrap();
+    for args in [
+        &[
+            "send",
+            "family.csv",
+            "--outbox",
+            "corrected",
+            "--banner",
+            "trees.png",
+        ][..],
+        &["send", "family.csv", "--dry-run", "--banner", "trees.png"][..],
+    ] {
+        e.santa()
+            .args(args)
+            .write_stdin("send 6\n")
+            .assert()
+            .code(1)
+            .stderr(predicate::str::contains("normal artwork"));
+    }
+    assert!(!e.path("corrected").exists(), "nothing was sent");
+
+    // A different custom image is still allowed for a correction.
+    fs::write(e.path("photo.jpg"), [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]).unwrap();
+    e.santa()
+        .args(["send", "family.csv", "--dry-run", "--banner", "photo.jpg"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn normal_send_still_accepts_the_tree_artwork() {
+    let e = Env::new();
+    e.pair();
+    fs::write(e.path("trees.png"), TREES_ART).unwrap();
+    e.santa()
+        .args([
+            "send",
+            "family.csv",
+            "--outbox",
+            "outbox",
+            "--banner",
+            "trees.png",
+        ])
+        .write_stdin("send 6\n")
+        .assert()
+        .success();
+    assert!(parse_eml(&e.outbox_files()[0]).banner == TREES_ART);
+}
+
+#[test]
+fn correction_dry_run_previews_the_yeti() {
+    let e = Env::new();
+    seal_correction(&e);
+    e.santa()
+        .args(["send", "family.csv", "--dry-run"])
+        .assert()
+        .success();
+    let preview = fs::read(e.path(".santa/family/preview/banner.png")).unwrap();
+    assert!(preview == YETI_ART, "dry-run preview shows the yeti banner");
 }
 
 #[test]
@@ -695,6 +824,52 @@ fn test_email_goes_only_to_the_organizer() {
     assert!(email.subject.starts_with("[TEST] "));
     assert!(email.text.contains("Example Receiver (test)"));
     assert_eq!(email.inline_images, 1);
+}
+
+#[test]
+fn correction_test_email_shows_the_yeti_copy_and_art() {
+    let e = Env::new();
+    e.santa()
+        .args([
+            "test-email",
+            "--correction",
+            "--year",
+            "2026",
+            "--to",
+            "me@example.com",
+            "--outbox",
+            "outbox",
+        ])
+        .assert()
+        .success();
+    let files = e.outbox_files();
+    assert_eq!(files.len(), 1);
+    let email = parse_eml(&files[0]);
+    assert_eq!(
+        email.subject,
+        "[TEST] 🏔️ Corrected 2026 Family Secret Santa assignment"
+    );
+    assert!(email.text.contains("horrible yeti"));
+    assert!(email.text.contains("Example Receiver (test)"));
+    assert!(
+        email.banner == YETI_ART,
+        "correction test uses the yeti banner"
+    );
+
+    fs::write(e.path("t.txt"), "Subject: Hi\n\n{receiver}\n").unwrap();
+    e.santa()
+        .args([
+            "test-email",
+            "--correction",
+            "--template",
+            "t.txt",
+            "--to",
+            "me@example.com",
+            "--outbox",
+            "outbox",
+        ])
+        .assert()
+        .code(2);
 }
 
 #[test]

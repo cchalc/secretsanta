@@ -117,6 +117,9 @@ pub enum Command {
         /// Recipient (defaults to EMAIL_HOST_USER, i.e. yourself).
         #[arg(long)]
         to: Option<String>,
+        /// Preview the correction email: yeti copy and yeti banner.
+        #[arg(long, conflicts_with = "template")]
+        correction: bool,
         #[command(flatten)]
         mail: MailArgs,
     },
@@ -153,7 +156,8 @@ pub struct MailArgs {
     /// Year used in the template (defaults to the current year).
     #[arg(long)]
     pub year: Option<i32>,
-    /// Banner image (PNG/JPEG/GIF) for the top of the email; defaults to the built-in art.
+    /// Banner image (PNG/JPEG/GIF) for the top of the email; defaults to the
+    /// built-in art (the yeti for a correction, which refuses the normal art).
     #[arg(long)]
     pub banner: Option<PathBuf>,
     /// Sender address (defaults to EMAIL_HOST_USER).
@@ -249,7 +253,11 @@ pub fn run(cli: Cli, io: &mut Io) -> Result<(), CliError> {
             only,
             mail,
         } => send_cmd(&state, &roster, dry_run, only, &mail, io),
-        Command::TestEmail { to, mail } => test_email(to, &mail, io),
+        Command::TestEmail {
+            to,
+            correction,
+            mail,
+        } => test_email(to, correction, &mail, io),
         Command::Reveal { roster, giver } => reveal(&state, &roster, &giver, io),
     }
 }
@@ -283,11 +291,21 @@ fn load_run_template(path: Option<&Path>, kind: RunKind) -> Result<Template, Cli
     }
 }
 
-fn load_banner(path: Option<&Path>) -> Result<Banner, CliError> {
-    match path {
-        None => Ok(Banner::default_art()),
-        Some(path) => Banner::from_bytes(read_input(path, "banner")?).map_err(other),
+/// The banner for a run of `kind`: the built-in art for that kind (trees, or
+/// the yeti for a correction) unless `--banner` overrides it. A correction
+/// never goes out with the normal artwork, so recipients can tell it apart.
+fn banner_for(kind: RunKind, path: Option<&Path>) -> Result<Banner, CliError> {
+    let banner = match path {
+        None if kind == RunKind::Correction => return Ok(Banner::correction_art()),
+        None => return Ok(Banner::default_art()),
+        Some(path) => Banner::from_bytes(read_input(path, "banner")?).map_err(other)?,
+    };
+    if kind == RunKind::Correction && banner.is_default_art() {
+        return Err(other(
+            "refusing to send a correction with the normal artwork; omit --banner to use the built-in yeti",
+        ));
     }
+    Ok(banner)
 }
 
 /// Per-roster state directory, so different lists never share a pairing.
@@ -1011,8 +1029,7 @@ fn verify(state_dir: &Path, path: &Path, io: &mut Io) -> Result<(), CliError> {
 }
 
 /// Sender, credentials and transport, from flags and the environment.
-fn build_mailer(mail: &MailArgs, io: &Io) -> Result<Box<dyn Mailer>, CliError> {
-    let banner = load_banner(mail.banner.as_deref())?;
+fn build_mailer(mail: &MailArgs, banner: Banner, io: &Io) -> Result<Box<dyn Mailer>, CliError> {
     let mailbox = |addr: &str| -> Result<Mailbox, CliError> {
         addr.parse()
             .map(|a| Mailbox::new(Some(FROM_NAME.to_owned()), a))
@@ -1073,11 +1090,7 @@ fn send_cmd(
     let state = State::for_roster(state_dir, path);
     let (sealed, assignment) = state.load_verified(&roster)?;
     let ledger = state.ledger_for(&sealed)?;
-    if sealed.kind == RunKind::Correction && !dry_run && mail.banner.is_none() {
-        return Err(other(
-            "correction email requires `--banner <yeti-image.png>`; refusing to send with the normal artwork",
-        ));
-    }
+    let banner = banner_for(sealed.kind, mail.banner.as_deref())?;
     let template = load_run_template(mail.template.as_deref(), sealed.kind)?;
     let year = match (sealed.year, mail.year) {
         (Some(sealed_year), Some(requested)) if sealed_year != requested => {
@@ -1099,7 +1112,7 @@ fn send_cmd(
     let batch = send::select(&outgoing, &ledger, &selection).map_err(other)?;
 
     if dry_run {
-        return print_dry_run(&batch, &ledger, &state, mail, io);
+        return print_dry_run(&batch, &ledger, &state, &banner, io);
     }
     if batch.is_empty() {
         writeln!(
@@ -1111,7 +1124,7 @@ fn send_cmd(
     }
     confirm(&batch, io)?;
 
-    let mailer = build_mailer(mail, io)?;
+    let mailer = build_mailer(mail, banner, io)?;
     mailer.preflight().map_err(other)?;
     let ledger_path = state.ledger();
     let out = &mut *io.out;
@@ -1148,7 +1161,7 @@ fn print_dry_run(
     batch: &[&Outgoing],
     ledger: &Ledger,
     state: &State,
-    mail: &MailArgs,
+    banner: &Banner,
     io: &mut Io,
 ) -> Result<(), CliError> {
     for Outgoing { letter, .. } in batch {
@@ -1159,8 +1172,7 @@ fn print_dry_run(
         )?;
     }
     if let Some(first) = batch.first() {
-        let banner = load_banner(mail.banner.as_deref())?;
-        let page = write_html_preview(&state.preview(), &first.letter.html, &banner)?;
+        let page = write_html_preview(&state.preview(), &first.letter.html, banner)?;
         writeln!(
             io.out,
             "----\nHTML preview (receiver redacted): {}",
@@ -1234,13 +1246,24 @@ fn report_delivery(
     }
 }
 
-fn test_email(to: Option<String>, mail: &MailArgs, io: &mut Io) -> Result<(), CliError> {
+fn test_email(
+    to: Option<String>,
+    correction: bool,
+    mail: &MailArgs,
+    io: &mut Io,
+) -> Result<(), CliError> {
     let to = to.or_else(|| (io.env)("EMAIL_HOST_USER")).ok_or_else(|| {
         other(format!(
             "pass --to, or set EMAIL_HOST_USER: {CREDENTIALS_HINT}"
         ))
     })?;
-    let template = load_template(mail.template.as_deref())?;
+    let kind = if correction {
+        RunKind::Correction
+    } else {
+        RunKind::Normal
+    };
+    let template = load_run_template(mail.template.as_deref(), kind)?;
+    let banner = banner_for(kind, mail.banner.as_deref())?;
     let year = mail.year.unwrap_or_else(|| year_of(io.now));
     let me = Participant {
         name: "Organizer".into(),
@@ -1251,7 +1274,7 @@ fn test_email(to: Option<String>, mail: &MailArgs, io: &mut Io) -> Result<(), Cl
     };
     let mut letter = render(&template, &me, "Example Receiver (test)", year);
     letter.subject = format!("[TEST] {}", letter.subject);
-    let mailer = build_mailer(mail, io)?;
+    let mailer = build_mailer(mail, banner, io)?;
     mailer.preflight().map_err(other)?;
     mailer.deliver(&letter).map_err(other)?;
     writeln!(io.out, "✉️  Test email sent to {to}.")?;

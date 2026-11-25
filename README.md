@@ -48,6 +48,7 @@ santa pair    list_holtby.csv --year 2026    # excludes every delivered 2025 ass
 santa verify  list_holtby.csv    # re-check the seal (prints no names)
 santa send    list_holtby.csv --dry-run   # every email with the receiver redacted, plus an HTML preview file
 santa test-email                 # one sample email to yourself (EMAIL_HOST_USER)
+santa test-email --correction    # the same, with the correction copy and yeti banner
 santa send    list_holtby.csv    # asks you to type `send N`, then emails everyone
 santa reveal  list_holtby.csv --giver Nick   # recovery only: spoils one pairing
 ```
@@ -64,9 +65,12 @@ email address.
 Use `santa correct <list> --year <year>` only after a disclosed run. It archives
 the old result, draws a replacement in which every participant changes receiver,
 and keeps only corrections that leave a feasible next-year draw. Correction
-email automatically uses the one-off yeti explanation; normal sends keep the
-normal template. A real correction send also requires
-`--banner <yeti-image.png>` and refuses the normal artwork.
+email automatically uses the one-off yeti explanation and the built-in yeti
+banner (`assets/yeti.png`); normal sends keep the normal template and art. A
+custom `--banner` still works for a correction, but the normal tree artwork is
+refused so a correction can't be mistaken for the original email. Rehearse it
+with `just rehearse-correction` (synthetic people, into Mailpit) and
+`just smoke-gmail-correction` (one `[TEST]` correction email to yourself).
 
 `santa simulate <list> --correction --years 5 --format json` performs the
 correction and future draws in memory. Its text and JSON contain aggregate
@@ -85,7 +89,7 @@ forecast. The report is owner-only and contains no participant or pairing data.
 
 Email options:
 - `--template file.txt`: first line `Subject: ...`, then a blank line, then paragraphs separated by blank lines. Placeholders are `{giver}`, `{receiver}` and `{year}`. `{receiver}` is required in the body and forbidden in the subject. The paragraph that mentions `{receiver}` becomes the highlighted card.
-- `--banner photo.jpg`: your own PNG, JPEG or GIF (up to 1 MB) instead of the built-in art.
+- `--banner photo.jpg`: your own PNG, JPEG or GIF (up to 1 MB) instead of the built-in art (trees, or the yeti for a correction).
 - `--year`: the year shown in the email.
 - `--from`: the sender address.
 - SMTP: `--smtp-host`, `--smtp-port`, and `--smtp-security starttls|tls|none`. `none` is for a local test inbox only, and never sends credentials.
@@ -109,6 +113,7 @@ Gmail requires an [App Password](https://support.google.com/accounts/answer/1858
 4. `santa send <list> --dry-run`: read the previews and open the HTML preview.
 5. `just mailpit` in another terminal, then `just rehearse-local`: view every test email at http://127.0.0.1:8025.
 6. `just smoke-gmail`: sends one real `[TEST]` email to yourself through Gmail.
+   For a correction, also run `just rehearse-correction` (Mailpit) and `just smoke-gmail-correction`.
 7. `santa send <list>`. If it's interrupted, run it again: people already emailed are skipped, using `.santa/<list>/ledger.json`.
 
 Once any email has been sent, `santa pair --force` refuses to re-pair. Re-pairing then would give people conflicting assignments.
@@ -151,12 +156,15 @@ roster.csv ─parse (accumulate errors)─▶ Roster ─solve_with_accommodation
 ![Built-in banner art](assets/banner.png)
 
 - **Banner:** original artwork in `assets/banner.svg` (trees, presents, baubles and snow), rendered to PNG with `just banner`.
+- **Correction banner:** original artwork in `assets/yeti.svg`: a sheepish yeti who fat-fingered the pairing keyboard, with name slips flying out of a knocked-over hat. `just banner` renders it too.
+
+  ![Built-in correction art](assets/yeti.png)
 - **Layout:** 600 px fluid layout that fits phones, with an Outlook-only fixed-width wrapper. In Mailpit's client-compatibility check across 186 tests: **91.7% fully supported, 1% unsupported**. Rounded corners square off in Outlook, and the hidden preview line may show in a few clients.
 - **Secrecy:** the receiver appears only in the reveal card. The subject, the inbox preview line and the HTML `<title>` never contain it.
 
 ## Testing
 
-`just check` runs fmt, clippy (warnings as errors) and the suite. `just test` runs the suite alone: **109 tests**.
+`just check` runs fmt, clippy (warnings as errors) and the suite. `just test` runs the suite alone: **114 tests**.
 
 - **Brute-force oracles** (`tests/oracle.rs`), independent code that checks every permutation:
   - pairing counts on the real lists (holtby 32, testing 2, chalcraft 0);
@@ -173,6 +181,7 @@ roster.csv ─parse (accumulate errors)─▶ Roster ─solve_with_accommodation
   - detection of tampered seals and changed rosters;
   - confirmation, resume and `--only`;
   - template and banner validation;
+  - correction emails carry the yeti copy and art, and refuse the normal artwork;
   - owner-only file permissions.
 - **SMTP** (`tests/smtp.rs`): the real `SmtpMailer` against an in-process fake SMTP server. Covers envelope recipients, MIME, a mid-run rejection followed by a resume, an unreachable server, and credentials never sent without TLS.
 - **Live:**

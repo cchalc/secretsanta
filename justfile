@@ -28,9 +28,10 @@ build:
 install:
     cargo install --path . --locked
 
-# Re-render the built-in banner art (assets/banner.svg → assets/banner.png).
+# Re-render the built-in art: assets/banner.svg → banner.png, assets/yeti.svg → yeti.png (correction emails).
 banner:
     nix run nixpkgs#resvg -- assets/banner.svg assets/banner.png
+    nix run nixpkgs#resvg -- assets/yeti.svg assets/yeti.png
 
 # Local test inbox: SMTP on 127.0.0.1:1025, web UI on http://127.0.0.1:8025
 mailpit:
@@ -55,6 +56,35 @@ rehearse-local list="list_testing.csv": build
 # Real Gmail: one sample email to yourself (EMAIL_HOST_USER), credentials from .envrc.
 smoke-gmail: build
     direnv exec . {{santa}} test-email
+
+# Real Gmail: one sample *correction* email (yeti banner and copy, dummy receiver) to yourself.
+smoke-gmail-correction: build
+    direnv exec . {{santa}} test-email --correction
+
+# Synthetic example.com people in a temp state dir (never .santa/): seal a correction, send its 6 emails to Mailpit.
+rehearse-correction: build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    work=$(mktemp -d)
+    trap 'rm -rf "$work"' EXIT
+    roster="$work/rehearsal.csv"
+    {
+        echo "Timestamp,Full Name,Room number,Email address"
+        echo "2026,Alice,1,alice@example.com"
+        echo "2026,Bob,1,bob@example.com"
+        echo "2026,Carol,2,carol@example.com"
+        echo "2026,Dave,2,dave@example.com"
+        echo "2026,Erin,3,erin@example.com"
+        echo "2026,Frank,3,frank@example.com"
+    } > "$roster"
+    s=({{santa}} --state-dir "$work/state")
+    "${s[@]}" pair "$roster" --year 2025 --seed 21 >/dev/null
+    echo "send 6" | "${s[@]}" send "$roster" --outbox "$work/outbox" >/dev/null
+    "${s[@]}" pair "$roster" --year 2026 --seed 22 >/dev/null
+    echo "send 6" | "${s[@]}" send "$roster" --outbox "$work/outbox" >/dev/null
+    "${s[@]}" correct "$roster" --year 2026 --seed 23
+    echo "send 6" | "${s[@]}" send "$roster" --from elf@example.com --smtp-security none --smtp-host 127.0.0.1
+    echo "Open http://127.0.0.1:8025 to see the 6 correction emails."
 
 # Simulate a correction plus five future years and log aggregate-only metrics
 # to the private local MLflow store at .santa/mlflow.db.

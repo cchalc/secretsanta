@@ -172,3 +172,6 @@ pairs.csv
 
 # Local agent tooling state
 .isaac/
+
+# Local agent tooling state
+.isaac/

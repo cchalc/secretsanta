@@ -65,6 +65,20 @@ impl Banner {
         }
     }
 
+    /// The built-in correction artwork (`assets/yeti.svg`, rendered to PNG):
+    /// the yeti who fat-fingered the pairing keyboard.
+    pub fn correction_art() -> Self {
+        Banner {
+            bytes: include_bytes!("../assets/yeti.png").to_vec(),
+            content_type: "image/png",
+        }
+    }
+
+    /// Whether this is the normal built-in artwork (which a correction must not reuse).
+    pub fn is_default_art(&self) -> bool {
+        self.bytes == include_bytes!("../assets/banner.png")
+    }
+
     /// Accept a user-supplied image, detecting its type from magic bytes.
     pub fn from_bytes(bytes: Vec<u8>) -> Result<Self, BannerError> {
         let content_type = match bytes.as_slice() {
@@ -191,6 +205,17 @@ mod tests {
     #[test]
     fn html_snapshot() {
         insta::assert_snapshot!(alice_letter().html);
+    }
+
+    #[test]
+    fn correction_art_is_a_distinct_small_png() {
+        let yeti = Banner::correction_art();
+        assert_eq!(
+            Banner::from_bytes(yeti.bytes.clone()).unwrap().content_type,
+            "image/png"
+        );
+        assert!(!yeti.is_default_art());
+        assert!(Banner::default_art().is_default_art());
     }
 
     #[test]
