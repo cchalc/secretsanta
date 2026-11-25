@@ -1,12 +1,14 @@
 //! `santa`: a Secret Santa pairing and mailing tool.
 //!
 //! Architecture: a pure *functional core* (`domain`, `roster`, `rules`,
-//! `solver`, `accommodate`, `seal`, `html`, `message`, `send`) wrapped by an *imperative shell*
+//! `solver`, `accommodate`, `seal`, `html`, `message`, `send`, `history`, `backup`)
+//! wrapped by an *imperative shell*
 //! (`cli`, `main.rs`) that owns all I/O. Randomness, the clock and email
 //! delivery (`mailer`) are passed into the core explicitly; mailers stamp each
 //! message's `Date` at the moment it is sent.
 
 pub mod accommodate;
+pub mod backup;
 pub mod cli;
 pub mod domain;
 pub mod files;

@@ -1,0 +1,4 @@
+# age public keys that santa encrypts history backups to (one per line).
+# Safe to commit: these can only encrypt. The matching secret key lives in
+# ~/.config/santa/age-key.txt and in the organizer's password manager.
+age1y3rgmcfhfanahc6grga4n6pvq8r28n7yl34fwryzt5xx5qazudkszn4pns

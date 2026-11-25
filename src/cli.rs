@@ -14,6 +14,7 @@ use rand_chacha::ChaCha20Rng;
 use serde::Serialize;
 
 use crate::accommodate;
+use crate::backup;
 use crate::domain::{Assignment, HouseholdId, Participant, Roster};
 use crate::files::{read_json, read_optional_json, write_json, write_private};
 use crate::history::{History, HistoryRun, RunKind};
@@ -31,6 +32,8 @@ use crate::solver::{
 const FROM_NAME: &str = "Santa's Elf";
 const EXACT_COUNT_MAX_N: usize = 12;
 const COUNT_LIMIT: u64 = 1_000_000;
+/// Where `santa history restore` looks for the age secret key by default.
+const DEFAULT_IDENTITY: &str = ".config/santa/age-key.txt";
 const CREDENTIALS_HINT: &str = "put it in .envrc (see .envrc.example) and run `direnv allow`";
 
 #[derive(Parser, Debug)]
@@ -140,6 +143,22 @@ pub enum HistoryCommand {
         #[arg(long)]
         year: i32,
     },
+    /// Write the encrypted history backup (history/<list>.history.age) now.
+    Backup { roster: PathBuf },
+    /// Restore private history from its encrypted backup (e.g. after a wipe).
+    Restore {
+        roster: PathBuf,
+        /// age secret key file (defaults to $SANTA_AGE_IDENTITY, then
+        /// ~/.config/santa/age-key.txt).
+        #[arg(long)]
+        identity: Option<PathBuf>,
+        /// Only compare the backup with local history; write nothing.
+        #[arg(long)]
+        check: bool,
+        /// Replace local history even if it differs from the backup.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
@@ -245,6 +264,13 @@ pub fn run(cli: Cli, io: &mut Io) -> Result<(), CliError> {
                 pairs,
                 year,
             } => import_legacy_history(&state, &roster, &pairs, year, io),
+            HistoryCommand::Backup { roster } => backup_history(&state, &roster, io),
+            HistoryCommand::Restore {
+                roster,
+                identity,
+                check,
+                force,
+            } => restore_history(&state, &roster, identity, check, force, io),
         },
         Command::Verify { roster } => verify(&state, &roster, io),
         Command::Send {
@@ -309,18 +335,32 @@ fn banner_for(kind: RunKind, path: Option<&Path>) -> Result<Banner, CliError> {
 }
 
 /// Per-roster state directory, so different lists never share a pairing.
+/// Encrypted history backups live in `history/` beside the state directory
+/// (the repo root for the default `.santa`), which is safe to commit.
 struct State {
     dir: PathBuf,
+    name: String,
+    backup_dir: PathBuf,
 }
 
 impl State {
     fn for_roster(state_dir: &Path, roster: &Path) -> Self {
-        let stem = roster
+        let name = roster
             .file_stem()
             .map_or_else(|| "roster".into(), |s| s.to_string_lossy().into_owned());
         State {
-            dir: state_dir.join(stem),
+            dir: state_dir.join(&name),
+            backup_dir: state_dir.parent().unwrap_or(Path::new("")).join("history"),
+            name,
         }
+    }
+
+    fn recipients(&self) -> PathBuf {
+        self.backup_dir.join("recipients.txt")
+    }
+
+    fn backup(&self) -> PathBuf {
+        self.backup_dir.join(format!("{}.history.age", self.name))
     }
 
     fn pairing(&self) -> PathBuf {
@@ -383,9 +423,33 @@ impl State {
         Ok(history)
     }
 
-    fn save_history(&self, history: &History) -> Result<(), CliError> {
+    /// Save private history and, when backups are enabled, its encrypted
+    /// copy. Returns the backup path if one was written.
+    fn save_history(&self, history: &History) -> Result<Option<PathBuf>, CliError> {
         history.validate().map_err(other)?;
-        write_json(&self.history(), history).map_err(Into::into)
+        write_json(&self.history(), history)?;
+        self.write_backup(history)
+    }
+
+    /// Encrypt `history` to `history/recipients.txt`. No recipients file
+    /// means backups are off, which is not an error.
+    fn write_backup(&self, history: &History) -> Result<Option<PathBuf>, CliError> {
+        let text = match fs::read_to_string(self.recipients()) {
+            Ok(text) => text,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => {
+                return Err(other(format!(
+                    "cannot read {}: {e}",
+                    self.recipients().display()
+                )));
+            }
+        };
+        let recipients = backup::parse_recipients(&text)
+            .map_err(|e| other(format!("{}: {e}", self.recipients().display())))?;
+        let plaintext = serde_json::to_vec_pretty(history).map_err(other)?;
+        let armored = backup::encrypt(&recipients, &plaintext).map_err(other)?;
+        write_private(&self.backup(), armored.as_bytes())?;
+        Ok(Some(self.backup()))
     }
 
     fn load_ledger(&self) -> Result<Option<Ledger>, CliError> {
@@ -523,7 +587,8 @@ fn pair(
                         &assignment,
                     ))
                     .map_err(other)?;
-                state.save_history(&history)?;
+                let backup = state.save_history(&history)?;
+                note_backup(io.out, backup.as_deref(), &history)?;
             }
         } else if !force {
             return Err(other(format!(
@@ -728,7 +793,7 @@ fn correct(
         year,
         RunKind::Correction,
     );
-    state.save_history(&history)?;
+    let backup = state.save_history(&history)?;
     write_json(&state.pairing(), &sealed)?;
     write_json(&state.ledger(), &Ledger::new(sealed.pairing_id()))?;
     writeln!(
@@ -742,6 +807,154 @@ fn correct(
         path.display(),
         path.display(),
     )?;
+    note_backup(io.out, backup.as_deref(), &history)?;
+    Ok(())
+}
+
+/// "3 runs (2025, 2026 superseded, 2026 correction)": years and kinds only.
+fn runs_summary(history: &History) -> String {
+    let runs = history
+        .runs
+        .iter()
+        .map(|run| {
+            let mut label = run.year.to_string();
+            if run.superseded {
+                label.push_str(" superseded");
+            }
+            if run.kind == RunKind::Correction {
+                label.push_str(" correction");
+            }
+            label
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{} ({runs})", plural(history.runs.len(), "run"))
+}
+
+fn note_backup(
+    out: &mut dyn Write,
+    backup: Option<&Path>,
+    history: &History,
+) -> Result<(), CliError> {
+    if let Some(path) = backup {
+        writeln!(
+            out,
+            "🔐 Encrypted history backup ({}) → {}; commit and push it so the history survives this laptop.",
+            runs_summary(history),
+            path.display()
+        )?;
+    }
+    Ok(())
+}
+
+fn backup_history(state_dir: &Path, roster_path: &Path, io: &mut Io) -> Result<(), CliError> {
+    let state = State::for_roster(state_dir, roster_path);
+    let history = state.load_history()?;
+    if history.runs.is_empty() {
+        return Err(other(format!(
+            "no delivered history at {} to back up",
+            state.history().display()
+        )));
+    }
+    let path = state.write_backup(&history)?.ok_or_else(|| {
+        other(format!(
+            "backups are off: {} is missing; add an age public key to it (see README)",
+            state.recipients().display()
+        ))
+    })?;
+    note_backup(io.out, Some(&path), &history)
+}
+
+fn restore_history(
+    state_dir: &Path,
+    roster_path: &Path,
+    identity: Option<PathBuf>,
+    check: bool,
+    force: bool,
+    io: &mut Io,
+) -> Result<(), CliError> {
+    let roster = load_roster(roster_path)?;
+    let state = State::for_roster(state_dir, roster_path);
+    let identity_path = identity
+        .or_else(|| (io.env)("SANTA_AGE_IDENTITY").map(PathBuf::from))
+        .or_else(|| (io.env)("HOME").map(|home| PathBuf::from(home).join(DEFAULT_IDENTITY)))
+        .ok_or_else(|| {
+            other("pass --identity <age key file>, or set SANTA_AGE_IDENTITY to its path")
+        })?;
+    let identity_text = String::from_utf8(read_input(&identity_path, "identity")?)
+        .map_err(|_| other("identity file is not text"))?;
+    let identity = backup::parse_identity(&identity_text).map_err(other)?;
+    let ciphertext = read_input(&state.backup(), "history backup")?;
+    let plaintext = backup::decrypt(&identity, &ciphertext).map_err(other)?;
+    let restored: History = serde_json::from_slice(&plaintext).map_err(|e| {
+        other(format!(
+            "history backup does not contain valid history: {e}"
+        ))
+    })?;
+    restored.validate().map_err(other)?;
+    let local: Option<History> = read_optional_json(&state.history())
+        .map_err(|e| other(format!("cannot read {}: {e}", state.history().display())))?;
+    let (matched, people) = restored.people_on_roster(&roster);
+
+    if check {
+        match &local {
+            Some(local) if *local == restored => writeln!(
+                io.out,
+                "OK: backup matches local history: {}.",
+                runs_summary(&restored)
+            )?,
+            Some(local) => writeln!(
+                io.out,
+                "backup differs from local history
+  backup: {}
+  local: {}
+Run `santa history backup {}` to refresh the backup, or restore with --force to replace local history.",
+                runs_summary(&restored),
+                runs_summary(local),
+                roster_path.display()
+            )?,
+            None => writeln!(
+                io.out,
+                "no local history; the backup holds {}.",
+                runs_summary(&restored)
+            )?,
+        }
+        writeln!(
+            io.out,
+            "  {matched}/{people} people in the backup are on this roster. Nothing was written."
+        )?;
+        return Ok(());
+    }
+
+    if let Some(local) = &local
+        && *local != restored
+        && !force
+    {
+        return Err(other(format!(
+            "local history differs from the backup (local: {}; backup: {}); pass --force to replace it",
+            runs_summary(local),
+            runs_summary(&restored)
+        )));
+    }
+    write_json(&state.history(), &restored)?;
+    writeln!(
+        io.out,
+        "Restored {} into {}; {matched}/{people} people in it are on this roster. No names or pairings were shown.",
+        runs_summary(&restored),
+        state.history().display()
+    )?;
+    if matched < people {
+        writeln!(
+            io.out,
+            "warning: {} in the history {} not on this roster (changed email address?); their past assignments no longer block repeats.",
+            people - matched,
+            if people - matched == 1 {
+                "person is"
+            } else {
+                "people are"
+            }
+        )?;
+    }
     Ok(())
 }
 
@@ -759,13 +972,14 @@ fn import_legacy_history(
     let run = history
         .import_legacy(&bytes, &roster, year)
         .map_err(other)?;
-    state.save_history(&history)?;
+    let count = run.assignment_count();
+    let backup = state.save_history(&history)?;
     writeln!(
         io.out,
-        "Imported {} delivered assignments for {year} into {}. No names or pairings were shown.",
-        run.assignment_count(),
+        "Imported {count} delivered assignments for {year} into {}. No names or pairings were shown.",
         state.history().display()
     )?;
+    note_backup(io.out, backup.as_deref(), &history)?;
     Ok(())
 }
 
@@ -1137,6 +1351,7 @@ fn send_cmd(
             let _ = writeln!(out, "  sent {i}/{n} → {}", letter.to);
         },
     );
+    let mut backup = None;
     if delivery.error.is_none() && delivery.ledger.sent.len() == roster.len() {
         let mut history = state.load_history()?;
         if !history.has_pairing(&sealed.pairing_id()) {
@@ -1150,10 +1365,14 @@ fn send_cmd(
                     &assignment,
                 ))
                 .map_err(other)?;
-            state.save_history(&history)?;
+            backup = state.save_history(&history)?.map(|path| (path, history));
         }
     }
-    report_delivery(delivery, roster.len(), &state, io)
+    report_delivery(delivery, roster.len(), &state, io)?;
+    if let Some((path, history)) = backup {
+        note_backup(io.out, Some(&path), &history)?;
+    }
+    Ok(())
 }
 
 /// Redacted previews of every pending letter, plus an HTML preview file.

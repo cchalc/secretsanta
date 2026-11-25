@@ -62,6 +62,32 @@ delivered during a correction year, the following year avoids both notices.
 Roster rows may be reordered because history matches participants by normalized
 email address.
 
+#### Encrypted history backup (kept in git)
+
+History is the only thing santa needs from past years, so an **encrypted** copy
+of each list's history is kept in the repo as `history/<list>.history.age`.
+santa rewrites it automatically whenever history changes: after a completed
+send, a correction, or a legacy import. It then prints a reminder to commit and
+push. The repo is public, so the copy is encrypted with
+[age](https://age-encryption.org) to the public key in `history/recipients.txt`.
+Encrypting needs no secret. Only restoring needs the secret key, which never
+enters the repo. It lives in `~/.config/santa/age-key.txt` (mode 0600) and in
+your password manager.
+
+```sh
+git add history && git commit -m "chore(history): update backup" && git push   # after each send
+santa history restore list_holtby.csv --check   # does the backup match local history? writes nothing
+santa history backup  list_holtby.csv           # re-encrypt the current history now
+```
+
+After a wipe: clone the repo, put the secret key back in
+`~/.config/santa/age-key.txt` (or pass `--identity <file>` /
+`SANTA_AGE_IDENTITY`), then run `santa history restore <list>` for each list.
+Restore refuses to overwrite a different local history without `--force`. It
+prints only run years and how many people still match the roster, and warns if
+someone's email changed. Lose the secret key and the backup can't be read, so
+keep it in your password manager.
+
 Use `santa correct <list> --year <year>` only after a disclosed run. It archives
 the old result, draws a replacement in which every participant changes receiver,
 and keeps only corrections that leave a feasible next-year draw. Correction
@@ -115,6 +141,7 @@ Gmail requires an [App Password](https://support.google.com/accounts/answer/1858
 6. `just smoke-gmail`: sends one real `[TEST]` email to yourself through Gmail.
    For a correction, also run `just rehearse-correction` (Mailpit) and `just smoke-gmail-correction`.
 7. `santa send <list>`. If it's interrupted, run it again: people already emailed are skipped, using `.santa/<list>/ledger.json`.
+8. Commit and push `history/<list>.history.age`, the encrypted history backup santa just updated.
 
 Once any email has been sent, `santa pair --force` refuses to re-pair. Re-pairing then would give people conflicting assignments.
 
@@ -141,6 +168,7 @@ roster.csv ─parse (accumulate errors)─▶ Roster ─solve_with_accommodation
 | `template` | Parses a template once into `Text \| Giver \| Receiver \| Year` segments and renders in a single pass, so substituted values are never re-expanded |
 | `html` | Table-based layout with inline styles, an inline banner (`cid:banner`), a hidden preview line and the reveal card. Everything is HTML-escaped |
 | `history` | Owner-only delivered-run log and previous-year giver/receiver exclusions, keyed by normalized email so roster reordering is safe |
+| `backup` | age encryption of history to the committed public keys; restore needs the organizer's secret key |
 | `message` | `Letter` (text + HTML) and the MIME build: `multipart/alternative[text, related[html, banner]]` |
 | `mailer` | `Mailer` trait: `SmtpMailer` (pooled, with a preflight connection test) and `OutboxMailer` (rehearsal `.eml` files) |
 | `send` | `plan` → `select` → `deliver`. The ledger is saved after every success, and delivery stops at the first failure |
@@ -164,7 +192,7 @@ roster.csv ─parse (accumulate errors)─▶ Roster ─solve_with_accommodation
 
 ## Testing
 
-`just check` runs fmt, clippy (warnings as errors) and the suite. `just test` runs the suite alone: **114 tests**.
+`just check` runs fmt, clippy (warnings as errors) and the suite. `just test` runs the suite alone: **121 tests**.
 
 - **Brute-force oracles** (`tests/oracle.rs`), independent code that checks every permutation:
   - pairing counts on the real lists (holtby 32, testing 2, chalcraft 0);
@@ -182,6 +210,7 @@ roster.csv ─parse (accumulate errors)─▶ Roster ─solve_with_accommodation
   - confirmation, resume and `--only`;
   - template and banner validation;
   - correction emails carry the yeti copy and art, and refuse the normal artwork;
+  - the encrypted history backup holds no names or emails, restores after a wipe, refuses the wrong key, and won't overwrite newer local history;
   - owner-only file permissions.
 - **SMTP** (`tests/smtp.rs`): the real `SmtpMailer` against an in-process fake SMTP server. Covers envelope recipients, MIME, a mid-run rejection followed by a resume, an unreachable server, and credentials never sent without TLS.
 - **Live:**
