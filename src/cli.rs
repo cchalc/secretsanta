@@ -6,14 +6,17 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use lettre::message::Mailbox;
 use rand::SeedableRng;
+use rand::seq::IndexedRandom;
 use rand_chacha::ChaCha20Rng;
+use serde::Serialize;
 
 use crate::accommodate;
 use crate::domain::{Assignment, HouseholdId, Participant, Roster};
 use crate::files::{read_json, read_optional_json, write_json, write_private};
+use crate::history::{History, HistoryRun, RunKind};
 use crate::html::BANNER_CID;
 use crate::mailer::{Mailer, OutboxMailer, Security, SmtpConfig, SmtpMailer};
 use crate::message::{Banner, Template, render, year_of};
@@ -21,7 +24,9 @@ use crate::roster;
 use crate::rules::{ALL_RULES, Policy};
 use crate::seal::{self, Sealed, VerifyError};
 use crate::send::{self, Delivery, Ledger, Outgoing, Selection, Visibility};
-use crate::solver::{self, Budget, Count, Method, SolveError};
+use crate::solver::{
+    self, Budget, Count, ForbiddenEdges, Method, Solution, SolutionSet, SolveError,
+};
 
 const FROM_NAME: &str = "Santa's Elf";
 const EXACT_COUNT_MAX_N: usize = 12;
@@ -45,7 +50,12 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Validate a roster; explain and preview any accommodation it needs.
-    Check { roster: PathBuf },
+    Check {
+        roster: PathBuf,
+        /// Calendar year whose previous delivered runs should be excluded.
+        #[arg(long)]
+        year: Option<i32>,
+    },
     /// Draw a pairing and seal it to disk without revealing it.
     Pair {
         roster: PathBuf,
@@ -55,6 +65,38 @@ pub enum Command {
         /// Replace an existing sealed pairing (refused once any email has been sent).
         #[arg(long)]
         force: bool,
+        /// Calendar year for this draw (defaults to the current UTC year).
+        #[arg(long)]
+        year: Option<i32>,
+    },
+    /// Replace a fully delivered pairing with a history-safe correction.
+    Correct {
+        roster: PathBuf,
+        #[arg(long)]
+        year: i32,
+        /// Deterministic seed (testing only).
+        #[arg(long)]
+        seed: Option<u64>,
+    },
+    /// Simulate future draws without saving or revealing any pairing.
+    Simulate {
+        roster: PathBuf,
+        #[arg(long, default_value_t = 5)]
+        years: usize,
+        #[arg(long)]
+        start_year: Option<i32>,
+        #[arg(long, default_value_t = 42)]
+        seed: u64,
+        /// Begin by simulating a replacement for the fully delivered active run.
+        #[arg(long)]
+        correction: bool,
+        #[arg(long, value_enum, default_value_t = ReportFormat::Text)]
+        format: ReportFormat,
+    },
+    /// Manage private delivered-assignment history.
+    History {
+        #[command(subcommand)]
+        command: HistoryCommand,
     },
     /// Re-check the sealed pairing against the roster and rules (prints no names).
     Verify { roster: PathBuf },
@@ -84,6 +126,23 @@ pub enum Command {
         #[arg(long)]
         giver: String,
     },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum HistoryCommand {
+    /// Import the original six-column pairs.csv format without printing rows.
+    ImportLegacy {
+        roster: PathBuf,
+        pairs: PathBuf,
+        #[arg(long)]
+        year: i32,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ReportFormat {
+    Text,
+    Json,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -158,12 +217,31 @@ impl From<io::Error> for CliError {
 pub fn run(cli: Cli, io: &mut Io) -> Result<(), CliError> {
     let state = cli.state_dir;
     match cli.command {
-        Command::Check { roster } => check(&roster, io),
+        Command::Check { roster, year } => check(&state, &roster, year, io),
         Command::Pair {
             roster,
             seed,
             force,
-        } => pair(&state, &roster, seed, force, io),
+            year,
+        } => pair(&state, &roster, seed, force, year, io),
+        Command::Correct { roster, year, seed } => correct(&state, &roster, year, seed, io),
+        Command::Simulate {
+            roster,
+            years,
+            start_year,
+            seed,
+            correction,
+            format,
+        } => simulate(
+            &state, &roster, years, start_year, seed, correction, format, io,
+        ),
+        Command::History { command } => match command {
+            HistoryCommand::ImportLegacy {
+                roster,
+                pairs,
+                year,
+            } => import_legacy_history(&state, &roster, &pairs, year, io),
+        },
         Command::Verify { roster } => verify(&state, &roster, io),
         Command::Send {
             roster,
@@ -197,6 +275,14 @@ fn load_template(path: Option<&Path>) -> Result<Template, CliError> {
     Template::parse(&text).map_err(other)
 }
 
+fn load_run_template(path: Option<&Path>, kind: RunKind) -> Result<Template, CliError> {
+    match path {
+        Some(path) => load_template(Some(path)),
+        None if kind == RunKind::Correction => Ok(Template::correction_template()),
+        None => Ok(Template::default_template()),
+    }
+}
+
 fn load_banner(path: Option<&Path>) -> Result<Banner, CliError> {
     match path {
         None => Ok(Banner::default_art()),
@@ -227,6 +313,10 @@ impl State {
         self.dir.join("ledger.json")
     }
 
+    fn history(&self) -> PathBuf {
+        self.dir.join("history.json")
+    }
+
     fn preview(&self) -> PathBuf {
         self.dir.join("preview")
     }
@@ -251,7 +341,33 @@ impl State {
             &Policy::strict(),
             Budget::default().search_nodes,
         )?;
+        if let Some(year) = sealed.year {
+            let history = self.load_history()?;
+            let forbidden =
+                history.forbidden_for(roster, year, sealed.kind, Some(&sealed.pairing_id()));
+            if assignment
+                .pairs()
+                .any(|(giver, receiver)| forbidden.contains(giver, receiver))
+            {
+                return Err(other(
+                    "sealed pairing repeats a delivered assignment that this run must avoid",
+                ));
+            }
+        }
         Ok((sealed, assignment))
+    }
+
+    fn load_history(&self) -> Result<History, CliError> {
+        let history: History = read_optional_json(&self.history())
+            .map_err(|e| other(format!("cannot read {}: {e}", self.history().display())))?
+            .unwrap_or_default();
+        history.validate().map_err(other)?;
+        Ok(history)
+    }
+
+    fn save_history(&self, history: &History) -> Result<(), CliError> {
+        history.validate().map_err(other)?;
+        write_json(&self.history(), history).map_err(Into::into)
     }
 
     fn load_ledger(&self) -> Result<Option<Ledger>, CliError> {
@@ -286,8 +402,12 @@ fn plural(n: usize, word: &str) -> String {
 // Commands
 // ---------------------------------------------------------------------------
 
-fn check(path: &Path, io: &mut Io) -> Result<(), CliError> {
+fn check(state_dir: &Path, path: &Path, year: Option<i32>, io: &mut Io) -> Result<(), CliError> {
     let roster = load_roster(path)?;
+    let year = year.unwrap_or_else(|| year_of(io.now));
+    let state = State::for_roster(state_dir, path);
+    let history = state.load_history()?;
+    let forbidden = history.forbidden_for(&roster, year, RunKind::Normal, None);
     let budget = Budget::default();
     let households = roster
         .household_sizes()
@@ -315,12 +435,27 @@ fn check(path: &Path, io: &mut Io) -> Result<(), CliError> {
         write!(io.out, "{accommodation}")?;
     }
     let policy = &pairing.policy;
+    solver::solve_avoiding(&roster, policy, &forbidden, &mut rng, budget)?;
+    if forbidden.count() > 0 {
+        writeln!(
+            io.out,
+            "History: avoiding {} delivered giver/receiver edges from {}.",
+            forbidden.count(),
+            year - 1
+        )?;
+    }
 
     if roster.len() > EXACT_COUNT_MAX_N {
         writeln!(io.out, "Feasible: valid pairings exist under: {policy}.")?;
         return Ok(());
     }
-    let count = match solver::count_solutions(&roster, policy, COUNT_LIMIT, budget.search_nodes) {
+    let count = match solver::count_solutions_avoiding(
+        &roster,
+        policy,
+        &forbidden,
+        COUNT_LIMIT,
+        budget.search_nodes,
+    ) {
         Count::Exact(n) => format!("exactly {n}"),
         // A pairing was just found, so there is at least one.
         Count::AtLeast(n) | Count::Unknown { seen: n } => format!("at least {}", n.max(1)),
@@ -337,25 +472,47 @@ fn pair(
     path: &Path,
     seed: Option<u64>,
     force: bool,
+    year: Option<i32>,
     io: &mut Io,
 ) -> Result<(), CliError> {
     let roster = load_roster(path)?;
     let state = State::for_roster(state_dir, path);
+    let year = year.unwrap_or_else(|| year_of(io.now));
+    let mut history = state.load_history()?;
 
-    if let Some(ledger) = state.load_ledger()?.filter(Ledger::has_sent_any) {
-        return Err(other(format!(
-            "{} already sent from the current pairing ({}). Re-pairing now would give people conflicting assignments.\n\
-             If you really mean to start over, tell everyone, then delete {} manually.",
-            plural(ledger.sent.len(), "email"),
-            state.ledger().display(),
-            state.ledger().display()
-        )));
-    }
-    if state.pairing().exists() && !force {
-        return Err(other(format!(
-            "a sealed pairing already exists at {}; use --force to replace it",
-            state.pairing().display()
-        )));
+    if state.pairing().exists() {
+        let (sealed, assignment) = state.load_verified(&roster)?;
+        let ledger = state.ledger_for(&sealed)?;
+        if ledger.has_sent_any() {
+            let can_roll_forward = ledger.sent.len() == roster.len()
+                && sealed.year.is_some_and(|old_year| old_year < year);
+            if !can_roll_forward {
+                return Err(other(format!(
+                    "{} already sent from the current pairing ({}). Re-pairing now would give people conflicting assignments; use `santa correct` for a disclosed run.",
+                    plural(ledger.sent.len(), "email"),
+                    state.ledger().display(),
+                )));
+            }
+            let old_year = sealed.year.expect("checked above");
+            if !history.has_pairing(&sealed.pairing_id()) {
+                history
+                    .append(HistoryRun::delivered(
+                        old_year,
+                        sealed.pairing_id(),
+                        sealed.kind,
+                        false,
+                        &roster,
+                        &assignment,
+                    ))
+                    .map_err(other)?;
+                state.save_history(&history)?;
+            }
+        } else if !force {
+            return Err(other(format!(
+                "a sealed pairing already exists at {}; use --force to replace it",
+                state.pairing().display()
+            )));
+        }
     }
 
     let mut rng: ChaCha20Rng = match seed {
@@ -368,9 +525,17 @@ fn pair(
         }
         None => rand::make_rng(),
     };
-    let pairing = accommodate::solve_with_accommodation(
+    let mut pairing = accommodate::solve_with_accommodation(
         &roster,
         &Policy::strict(),
+        &mut rng,
+        Budget::default(),
+    )?;
+    let forbidden = history.forbidden_for(&roster, year, RunKind::Normal, None);
+    pairing.solution = solver::solve_avoiding(
+        &roster,
+        &pairing.policy,
+        &forbidden,
         &mut rng,
         Budget::default(),
     )?;
@@ -379,7 +544,14 @@ fn pair(
     }
 
     let created = io.now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
-    let sealed = Sealed::new(&roster, &pairing.solution, &pairing.policy, created);
+    let sealed = Sealed::new(
+        &roster,
+        &pairing.solution,
+        &pairing.policy,
+        created,
+        year,
+        RunKind::Normal,
+    );
     write_json(&state.pairing(), &sealed)?;
     // A fresh pairing starts a fresh (empty) ledger.
     write_json(&state.ledger(), &Ledger::new(sealed.pairing_id()))?;
@@ -402,6 +574,410 @@ fn pair(
         short(&sealed.pairing_id()),
         path.display(),
         path.display()
+    )?;
+    if forbidden.count() > 0 {
+        writeln!(
+            io.out,
+            "   history: avoided {} delivered edges from {}",
+            forbidden.count(),
+            year - 1
+        )?;
+    }
+    Ok(())
+}
+
+fn rng_from_seed(seed: Option<u64>, io: &mut Io) -> Result<ChaCha20Rng, CliError> {
+    match seed {
+        Some(seed) => {
+            writeln!(
+                io.err,
+                "warning: --seed makes this pairing reproducible by anyone who knows the seed; use for testing only"
+            )?;
+            Ok(ChaCha20Rng::seed_from_u64(seed))
+        }
+        None => Ok(rand::make_rng()),
+    }
+}
+
+fn correct(
+    state_dir: &Path,
+    path: &Path,
+    year: i32,
+    seed: Option<u64>,
+    io: &mut Io,
+) -> Result<(), CliError> {
+    let roster = load_roster(path)?;
+    let state = State::for_roster(state_dir, path);
+    let (old_sealed, old_assignment) = state.load_verified(&roster)?;
+    let ledger = state.ledger_for(&old_sealed)?;
+    if ledger.sent.len() != roster.len() {
+        return Err(other(format!(
+            "correction requires a fully delivered pairing; only {}/{} emails were sent",
+            ledger.sent.len(),
+            roster.len()
+        )));
+    }
+    if old_sealed
+        .year
+        .is_some_and(|sealed_year| sealed_year != year)
+    {
+        return Err(other("--year does not match the sealed pairing year"));
+    }
+
+    let mut history = state.load_history()?;
+    if history.runs_in_year(year - 1) == 0 {
+        return Err(other(format!(
+            "no delivered history exists for {}; import the previous run before correcting",
+            year - 1
+        )));
+    }
+    let old_id = old_sealed.pairing_id();
+    if !history.mark_superseded(&old_id) {
+        history
+            .append(HistoryRun::delivered(
+                year,
+                old_id.clone(),
+                old_sealed.kind,
+                true,
+                &roster,
+                &old_assignment,
+            ))
+            .map_err(other)?;
+    }
+    let forbidden = history.forbidden_for(&roster, year, RunKind::Correction, None);
+    let candidates = match solver::collect_solutions_avoiding(
+        &roster,
+        &old_sealed.policy,
+        &forbidden,
+        COUNT_LIMIT as usize,
+        Budget::default().search_nodes,
+    ) {
+        SolutionSet::Exact(candidates) => candidates,
+        SolutionSet::AtLeast(count) => {
+            return Err(other(format!(
+                "correction has at least {count} candidates; raise the collection limit before drawing"
+            )));
+        }
+        SolutionSet::Unknown(count) => {
+            return Err(other(format!(
+                "correction search budget ended after {count} candidates"
+            )));
+        }
+    };
+    if candidates.is_empty() {
+        return Err(other(
+            "no correction avoids both the previous year and the superseded draw",
+        ));
+    }
+
+    let future_safe: Vec<Assignment> = candidates
+        .iter()
+        .filter(|candidate| {
+            let mut next_year = ForbiddenEdges::none(roster.len());
+            next_year.extend(&old_assignment);
+            next_year.extend(candidate);
+            solver::feasible_avoiding(
+                &roster,
+                &old_sealed.policy,
+                &next_year,
+                Budget::default().search_nodes,
+            ) == Some(true)
+        })
+        .cloned()
+        .collect();
+    if future_safe.is_empty() {
+        return Err(other(
+            "correction candidates exist, but none leave a valid next-year draw that avoids both notices",
+        ));
+    }
+    let mut rng = rng_from_seed(seed, io)?;
+    let assignment = future_safe
+        .choose(&mut rng)
+        .expect("checked non-empty")
+        .clone();
+    let solution = Solution {
+        assignment,
+        method: Method::Sampled {
+            attempts: future_safe.len() as u64,
+        },
+    };
+    let created = io.now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let sealed = Sealed::new(
+        &roster,
+        &solution,
+        &old_sealed.policy,
+        created,
+        year,
+        RunKind::Correction,
+    );
+    state.save_history(&history)?;
+    write_json(&state.pairing(), &sealed)?;
+    write_json(&state.ledger(), &Ledger::new(sealed.pairing_id()))?;
+    writeln!(
+        io.out,
+        "🏔️ Sealed a correction for {} participants.\n   {} valid corrections avoided both the previous year and the superseded draw\n   {} also preserve a next-year draw that avoids both {} notices\n   pairing id: {}\nNo names were shown and nothing was sent. Next: `santa verify {}` then `santa send {} --dry-run`.",
+        roster.len(),
+        candidates.len(),
+        future_safe.len(),
+        year,
+        short(&sealed.pairing_id()),
+        path.display(),
+        path.display(),
+    )?;
+    Ok(())
+}
+
+fn import_legacy_history(
+    state_dir: &Path,
+    roster_path: &Path,
+    pairs_path: &Path,
+    year: i32,
+    io: &mut Io,
+) -> Result<(), CliError> {
+    let roster = load_roster(roster_path)?;
+    let state = State::for_roster(state_dir, roster_path);
+    let mut history = state.load_history()?;
+    let bytes = read_input(pairs_path, "legacy pairing")?;
+    let run = history
+        .import_legacy(&bytes, &roster, year)
+        .map_err(other)?;
+    state.save_history(&history)?;
+    writeln!(
+        io.out,
+        "Imported {} delivered assignments for {year} into {}. No names or pairings were shown.",
+        run.assignment_count(),
+        state.history().display()
+    )?;
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
+struct SimulationYear {
+    year: i32,
+    run_kind: &'static str,
+    candidate_pairings: u64,
+    candidate_count_exact: bool,
+    previous_runs_avoided: usize,
+    forbidden_edges: usize,
+    future_safe_candidates: Option<usize>,
+    previous_year_repeats: usize,
+    rule_violations: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct SimulationReport {
+    policy: &'static str,
+    participant_count: usize,
+    seed: u64,
+    includes_correction: bool,
+    simulated_years: usize,
+    minimum_repeat_gap_years: Option<i32>,
+    years: Vec<SimulationYear>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn simulate(
+    state_dir: &Path,
+    path: &Path,
+    years: usize,
+    start_year: Option<i32>,
+    seed: u64,
+    correction: bool,
+    format: ReportFormat,
+    io: &mut Io,
+) -> Result<(), CliError> {
+    let roster = load_roster(path)?;
+    let state = State::for_roster(state_dir, path);
+    let mut history = state.load_history()?;
+    let mut rng = ChaCha20Rng::seed_from_u64(seed);
+    let policy =
+        accommodate::minimal_policy(&roster, &Policy::strict(), Budget::default().search_nodes)?;
+    let mut report_years = Vec::new();
+    let mut first_future_year = start_year
+        .or_else(|| history.latest_year().map(|year| year + 1))
+        .unwrap_or_else(|| year_of(io.now));
+
+    if correction {
+        let (active_sealed, active_assignment) = state.load_verified(&roster)?;
+        let ledger = state.ledger_for(&active_sealed)?;
+        let correction_year = active_sealed
+            .year
+            .or(start_year)
+            .unwrap_or_else(|| year_of(io.now));
+        if history.runs_in_year(correction_year - 1) == 0 {
+            return Err(other(format!(
+                "no delivered history exists for {}; import it before simulating a correction",
+                correction_year - 1
+            )));
+        }
+        if active_sealed.kind == RunKind::Normal {
+            if ledger.sent.len() != roster.len() {
+                return Err(other(
+                    "correction simulation requires a fully delivered normal run or an already sealed correction",
+                ));
+            }
+            let active_id = active_sealed.pairing_id();
+            if !history.mark_superseded(&active_id) {
+                history
+                    .append(HistoryRun::delivered(
+                        correction_year,
+                        active_id,
+                        active_sealed.kind,
+                        true,
+                        &roster,
+                        &active_assignment,
+                    ))
+                    .map_err(other)?;
+            }
+        }
+        let forbidden = history.forbidden_for(&roster, correction_year, RunKind::Correction, None);
+        let candidates = match solver::collect_solutions_avoiding(
+            &roster,
+            &active_sealed.policy,
+            &forbidden,
+            COUNT_LIMIT as usize,
+            Budget::default().search_nodes,
+        ) {
+            SolutionSet::Exact(candidates) => candidates,
+            SolutionSet::AtLeast(count) | SolutionSet::Unknown(count) => {
+                return Err(other(format!(
+                    "correction simulation could not enumerate all candidates (saw {count})"
+                )));
+            }
+        };
+        let future_safe: Vec<Assignment> = candidates
+            .iter()
+            .filter(|candidate| {
+                let mut next_year =
+                    history.forbidden_for(&roster, correction_year + 1, RunKind::Normal, None);
+                next_year.extend(candidate);
+                solver::feasible_avoiding(
+                    &roster,
+                    &active_sealed.policy,
+                    &next_year,
+                    Budget::default().search_nodes,
+                ) == Some(true)
+            })
+            .cloned()
+            .collect();
+        let selected = if active_sealed.kind == RunKind::Correction {
+            future_safe
+                .contains(&active_assignment)
+                .then_some(active_assignment)
+                .ok_or_else(|| other("the sealed correction is not future-safe"))?
+        } else {
+            future_safe
+                .choose(&mut rng)
+                .ok_or_else(|| other("no future-safe correction exists"))?
+                .clone()
+        };
+        history
+            .append(HistoryRun::delivered(
+                correction_year,
+                format!("simulation-correction-{correction_year}"),
+                RunKind::Correction,
+                false,
+                &roster,
+                &selected,
+            ))
+            .map_err(other)?;
+        report_years.push(SimulationYear {
+            year: correction_year,
+            run_kind: "correction",
+            candidate_pairings: candidates.len() as u64,
+            candidate_count_exact: true,
+            previous_runs_avoided: history.runs_in_year(correction_year - 1) + 1,
+            forbidden_edges: forbidden.count(),
+            future_safe_candidates: Some(future_safe.len()),
+            previous_year_repeats: 0,
+            rule_violations: 0,
+        });
+        first_future_year = correction_year + 1;
+    }
+
+    for offset in 0..years {
+        let year = first_future_year + offset as i32;
+        let forbidden = history.forbidden_for(&roster, year, RunKind::Normal, None);
+        let count = solver::count_solutions_avoiding(
+            &roster,
+            &policy,
+            &forbidden,
+            COUNT_LIMIT,
+            Budget::default().search_nodes,
+        );
+        let (candidate_pairings, candidate_count_exact) = match count {
+            Count::Exact(count) => (count, true),
+            Count::AtLeast(count) | Count::Unknown { seen: count } => (count, false),
+        };
+        let solution =
+            solver::solve_avoiding(&roster, &policy, &forbidden, &mut rng, Budget::default())?;
+        history
+            .append(HistoryRun::delivered(
+                year,
+                format!("simulation-{year}"),
+                RunKind::Normal,
+                false,
+                &roster,
+                &solution.assignment,
+            ))
+            .map_err(other)?;
+        report_years.push(SimulationYear {
+            year,
+            run_kind: "normal",
+            candidate_pairings,
+            candidate_count_exact,
+            previous_runs_avoided: history.runs_in_year(year - 1),
+            forbidden_edges: forbidden.count(),
+            future_safe_candidates: None,
+            previous_year_repeats: 0,
+            rule_violations: 0,
+        });
+    }
+
+    let report = SimulationReport {
+        policy: "avoid-all-delivered-assignments-from-previous-year",
+        participant_count: roster.len(),
+        seed,
+        includes_correction: correction,
+        simulated_years: years,
+        minimum_repeat_gap_years: history.minimum_repeat_gap(),
+        years: report_years,
+    };
+    match format {
+        ReportFormat::Json => {
+            serde_json::to_writer_pretty(&mut *io.out, &report).map_err(other)?;
+            writeln!(io.out)?;
+        }
+        ReportFormat::Text => print_simulation(&report, io)?,
+    }
+    Ok(())
+}
+
+fn print_simulation(report: &SimulationReport, io: &mut Io) -> Result<(), CliError> {
+    writeln!(
+        io.out,
+        "Five-year history QC: {} participants, seed {}, policy: previous-year-only",
+        report.participant_count, report.seed
+    )?;
+    for year in &report.years {
+        let exact = if year.candidate_count_exact { "" } else { "+" };
+        writeln!(
+            io.out,
+            "  {} {}: {}{exact} candidates, {} forbidden edges, 0 previous-year repeats, 0 rule violations{}",
+            year.year,
+            year.run_kind,
+            year.candidate_pairings,
+            year.forbidden_edges,
+            year.future_safe_candidates
+                .map_or_else(String::new, |count| format!(", {count} future-safe")),
+        )?;
+    }
+    if let Some(gap) = report.minimum_repeat_gap_years {
+        writeln!(io.out, "Minimum observed repeat gap: {gap} year(s).")?;
+    }
+    writeln!(
+        io.out,
+        "No assignments, names, email addresses, or receiver indices were shown or saved."
     )?;
     Ok(())
 }
@@ -497,8 +1073,21 @@ fn send_cmd(
     let state = State::for_roster(state_dir, path);
     let (sealed, assignment) = state.load_verified(&roster)?;
     let ledger = state.ledger_for(&sealed)?;
-    let template = load_template(mail.template.as_deref())?;
-    let year = mail.year.unwrap_or_else(|| year_of(io.now));
+    if sealed.kind == RunKind::Correction && !dry_run && mail.banner.is_none() {
+        return Err(other(
+            "correction email requires `--banner <yeti-image.png>`; refusing to send with the normal artwork",
+        ));
+    }
+    let template = load_run_template(mail.template.as_deref(), sealed.kind)?;
+    let year = match (sealed.year, mail.year) {
+        (Some(sealed_year), Some(requested)) if sealed_year != requested => {
+            return Err(other(format!(
+                "--year {requested} does not match sealed pairing year {sealed_year}"
+            )));
+        }
+        (Some(sealed_year), _) => sealed_year,
+        (None, requested) => requested.unwrap_or_else(|| year_of(io.now)),
+    };
     let selection = only.map_or(Selection::Pending, Selection::Only);
 
     let visibility = if dry_run {
@@ -535,6 +1124,22 @@ fn send_cmd(
             let _ = writeln!(out, "  sent {i}/{n} → {}", letter.to);
         },
     );
+    if delivery.error.is_none() && delivery.ledger.sent.len() == roster.len() {
+        let mut history = state.load_history()?;
+        if !history.has_pairing(&sealed.pairing_id()) {
+            history
+                .append(HistoryRun::delivered(
+                    year,
+                    sealed.pairing_id(),
+                    sealed.kind,
+                    false,
+                    &roster,
+                    &assignment,
+                ))
+                .map_err(other)?;
+            state.save_history(&history)?;
+        }
+    }
     report_delivery(delivery, roster.len(), &state, io)
 }
 

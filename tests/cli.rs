@@ -424,6 +424,7 @@ fn files_that_reveal_pairings_are_owner_only() {
     for f in [
         ".santa/family/pairing.json",
         ".santa/family/ledger.json",
+        ".santa/family/history.json",
         ".santa/family/preview/email.html",
     ] {
         assert_eq!(mode(&e.path(f)), 0o600, "{f}");
@@ -499,7 +500,10 @@ fn smtp_without_credentials_fails_before_sending() {
 #[test]
 fn custom_template_is_validated() {
     let e = Env::new();
-    e.pair();
+    e.santa()
+        .args(["pair", "family.csv", "--year", "2027"])
+        .assert()
+        .success();
     fs::write(
         e.path("bad.txt"),
         "Subject: Gift for {receiver}\n\nHi {giver}, {receiver}\n",
@@ -533,6 +537,146 @@ fn custom_template_is_validated() {
         .stdout(predicate::str::contains("you have [redacted]."));
     let html = fs::read_to_string(e.path(".santa/family/preview/email.html")).unwrap();
     assert!(html.contains("Secret Santa 2027"));
+}
+
+#[test]
+fn completed_year_is_archived_and_next_year_never_repeats() {
+    let e = Env::new();
+    e.santa()
+        .args(["pair", "family.csv", "--year", "2025", "--seed", "11"])
+        .assert()
+        .success();
+    let previous = e.receivers();
+    e.santa()
+        .args(["send", "family.csv", "--outbox", "outbox", "--year", "2025"])
+        .write_stdin("send 6\n")
+        .assert()
+        .success();
+    e.santa()
+        .args(["pair", "family.csv", "--year", "2026", "--seed", "12"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("avoided 6 delivered edges"));
+    let current = e.receivers();
+    assert!(
+        previous
+            .iter()
+            .zip(current)
+            .all(|(previous, current)| *previous != current)
+    );
+    assert!(e.path(".santa/family/history.json").exists());
+}
+
+#[test]
+fn correction_changes_every_assignment_and_uses_correction_copy() {
+    let e = Env::new();
+    e.santa()
+        .args(["pair", "family.csv", "--year", "2025", "--seed", "21"])
+        .assert()
+        .success();
+    let first = e.receivers();
+    e.santa()
+        .args(["send", "family.csv", "--outbox", "outbox"])
+        .write_stdin("send 6\n")
+        .assert()
+        .success();
+    e.santa()
+        .args(["pair", "family.csv", "--year", "2026", "--seed", "22"])
+        .assert()
+        .success();
+    let superseded = e.receivers();
+    e.santa()
+        .args(["send", "family.csv", "--outbox", "outbox"])
+        .write_stdin("send 6\n")
+        .assert()
+        .success();
+
+    let simulation = stdout_of(e.santa().args([
+        "simulate",
+        "family.csv",
+        "--correction",
+        "--years",
+        "5",
+        "--seed",
+        "23",
+        "--format",
+        "json",
+    ]));
+    assert!(simulation.contains("\"includes_correction\": true"));
+    assert!(simulation.contains("\"previous_year_repeats\": 0"));
+    assert!(NAMES.iter().all(|name| !simulation.contains(name)));
+    assert!(!simulation.contains("@example.com"));
+
+    e.santa()
+        .args(["correct", "family.csv", "--year", "2026", "--seed", "23"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "No names were shown and nothing was sent",
+        ));
+    let corrected = e.receivers();
+    assert!(
+        corrected
+            .iter()
+            .enumerate()
+            .all(|(giver, receiver)| *receiver != first[giver] && *receiver != superseded[giver])
+    );
+    e.santa()
+        .args([
+            "simulate",
+            "family.csv",
+            "--correction",
+            "--years",
+            "5",
+            "--format",
+            "json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"includes_correction\": true"));
+    e.santa()
+        .args(["send", "family.csv", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("horrible yeti"))
+        .stdout(predicate::str::contains("pieces of paper in a hat"));
+    e.santa()
+        .args(["send", "family.csv", "--outbox", "outbox"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("requires `--banner"));
+}
+
+#[test]
+fn legacy_history_import_reports_only_counts() {
+    let e = Env::new();
+    let receivers = [2, 4, 5, 1, 3, 0];
+    let legacy = receivers
+        .iter()
+        .enumerate()
+        .map(|(giver, receiver)| {
+            format!(
+                "\"{},H{},{}@example.com,{},H{},{}@example.com\"\n",
+                NAMES[giver],
+                giver / 2,
+                NAMES[giver].to_lowercase(),
+                NAMES[*receiver],
+                receiver / 2,
+                NAMES[*receiver].to_lowercase(),
+            )
+        })
+        .collect::<String>();
+    fs::write(e.path("legacy.csv"), legacy).unwrap();
+    let output = stdout_of(e.santa().args([
+        "history",
+        "import-legacy",
+        "family.csv",
+        "legacy.csv",
+        "--year",
+        "2025",
+    ]));
+    assert!(output.contains("Imported 6 delivered assignments for 2025"));
+    assert!(NAMES.iter().all(|name| !output.contains(name)));
 }
 
 // ------------------------------------------------------ test-email, reveal ---

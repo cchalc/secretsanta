@@ -32,6 +32,26 @@ Merry Christmas and happy holidays!
 Santa's Elf 🧝
 ";
 
+/// Used only for a pairing explicitly sealed as a correction.
+pub const CORRECTION_TEMPLATE: &str = "\
+Subject: 🏔️ Corrected {year} Family Secret Santa assignment
+
+Hi {giver},
+
+Please disregard the Secret Santa assignment in the earlier email. A horrible yeti got hold of our pairing system and fat-fingered the keyboard.
+
+The elves have been working tirelessly to fix the problem, and they have now come up with a new result. Your corrected Secret Santa assignment is…
+
+🎁 {receiver} 🎁
+
+This new assignment replaces the earlier one. Please keep it secret!
+
+If this attempt fails, we can always go back to pieces of paper in a hat.
+
+Merry Christmas and happy holidays!
+Santa's slightly frazzled Elf 🧝
+";
+
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TemplateError {
     #[error("template must start with a `Subject: ...` line followed by a blank line")]
@@ -166,6 +186,10 @@ impl Template {
         Template::parse(DEFAULT_TEMPLATE).expect("built-in template is valid")
     }
 
+    pub fn correction_template() -> Self {
+        Template::parse(CORRECTION_TEMPLATE).expect("built-in correction template is valid")
+    }
+
     /// Plain-text body: paragraphs separated by blank lines.
     pub fn render_body(&self, fill: Fill) -> String {
         let paragraphs: Vec<String> = self
@@ -229,6 +253,15 @@ mod tests {
             ..FILL
         };
         assert_eq!(t.render_body(sneaky), "{receiver} → Bo (2026)\n");
+    }
+
+    #[test]
+    fn correction_template_is_explicit_and_valid() {
+        let rendered = Template::correction_template().render_body(FILL);
+        assert!(rendered.contains("disregard"));
+        assert!(rendered.contains("horrible yeti"));
+        assert!(rendered.contains("pieces of paper in a hat"));
+        assert!(rendered.contains("Bo"));
     }
 
     #[test]

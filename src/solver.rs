@@ -19,6 +19,42 @@ use rand::seq::SliceRandom;
 use crate::domain::{Assignment, HouseholdId, ParticipantId, Roster};
 use crate::rules::{Partial, Policy, Rule};
 
+/// Giver → receiver edges that a draw may not use, normally because they were
+/// delivered in the previous year. This stays separate from [`Policy`]: the
+/// household rules describe a roster, while history is private run state.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForbiddenEdges {
+    n: usize,
+    edges: Vec<bool>,
+}
+
+impl ForbiddenEdges {
+    pub fn none(n: usize) -> Self {
+        Self {
+            n,
+            edges: vec![false; n * n],
+        }
+    }
+
+    pub fn forbid(&mut self, giver: ParticipantId, receiver: ParticipantId) {
+        if giver < self.n && receiver < self.n {
+            self.edges[giver * self.n + receiver] = true;
+        }
+    }
+
+    pub fn contains(&self, giver: ParticipantId, receiver: ParticipantId) -> bool {
+        giver < self.n && receiver < self.n && self.edges[giver * self.n + receiver]
+    }
+
+    pub fn extend(&mut self, assignment: &Assignment) {
+        assignment.pairs().for_each(|(g, r)| self.forbid(g, r));
+    }
+
+    pub fn count(&self) -> usize {
+        self.edges.iter().filter(|&&edge| edge).count()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Budget {
     /// Maximum random shuffles before falling back to exhaustive search.
@@ -98,22 +134,56 @@ pub fn solve<R: Rng + ?Sized>(
     rng: &mut R,
     budget: Budget,
 ) -> Result<Solution, SolveError> {
+    solve_avoiding(
+        roster,
+        policy,
+        &ForbiddenEdges::none(roster.len()),
+        rng,
+        budget,
+    )
+}
+
+/// Find an assignment that satisfies `policy` and avoids every historical
+/// edge. Rejection sampling remains uniform because it conditions the same
+/// uniform permutation stream on one additional predicate.
+pub fn solve_avoiding<R: Rng + ?Sized>(
+    roster: &Roster,
+    policy: &Policy,
+    forbidden: &ForbiddenEdges,
+    rng: &mut R,
+    budget: Budget,
+) -> Result<Solution, SolveError> {
     let reasons = precheck(roster, policy);
     if !reasons.is_empty() {
         return Err(infeasible(roster, policy, budget, reasons));
     }
 
-    if let Some((assignment, attempts)) = sample(roster, policy, rng, budget.sample_attempts) {
+    if let Some((assignment, attempts)) =
+        sample(roster, policy, forbidden, rng, budget.sample_attempts)
+    {
         return Ok(Solution {
             assignment,
             method: Method::Sampled { attempts },
         });
     }
-    match search(roster, policy, &mut |c| c.shuffle(rng), budget.search_nodes) {
+    match search(
+        roster,
+        policy,
+        forbidden,
+        &mut |c| c.shuffle(rng),
+        budget.search_nodes,
+    ) {
         Outcome::Found(assignment) => Ok(Solution {
             assignment,
             method: Method::Searched,
         }),
+        Outcome::Exhausted if forbidden.count() > 0 => Err(SolveError::Infeasible(Diagnosis {
+            reasons: vec![
+                "no pairing avoids every delivered giver/receiver edge from the previous year"
+                    .into(),
+            ],
+            blocking_rules: Vec::new(),
+        })),
         Outcome::Exhausted => Err(infeasible(roster, policy, budget, Vec::new())),
         Outcome::OutOfBudget => Err(SolveError::Undetermined),
     }
@@ -123,6 +193,7 @@ pub fn solve<R: Rng + ?Sized>(
 fn sample<R: Rng + ?Sized>(
     roster: &Roster,
     policy: &Policy,
+    forbidden: &ForbiddenEdges,
     rng: &mut R,
     attempts: u64,
 ) -> Option<(Assignment, u64)> {
@@ -130,7 +201,13 @@ fn sample<R: Rng + ?Sized>(
     let mut perm: Vec<ParticipantId> = (0..n).collect();
     (1..=attempts).find_map(|attempt| {
         perm.shuffle(rng);
-        policy.admits(roster, &perm).then(|| {
+        (policy.admits(roster, &perm)
+            && perm
+                .iter()
+                .copied()
+                .enumerate()
+                .all(|(g, r)| !forbidden.contains(g, r)))
+        .then(|| {
             let a =
                 Assignment::from_receivers(perm.clone(), n).expect("a shuffle is a permutation");
             (a, attempt)
@@ -279,7 +356,21 @@ fn blocking_rules(roster: &Roster, policy: &Policy, budget: Budget) -> Vec<Rule>
 
 /// `Some(true/false)` if decided within budget, `None` otherwise.
 pub fn feasible(roster: &Roster, policy: &Policy, node_budget: u64) -> Option<bool> {
-    match search(roster, policy, &mut |_| {}, node_budget) {
+    feasible_avoiding(
+        roster,
+        policy,
+        &ForbiddenEdges::none(roster.len()),
+        node_budget,
+    )
+}
+
+pub fn feasible_avoiding(
+    roster: &Roster,
+    policy: &Policy,
+    forbidden: &ForbiddenEdges,
+    node_budget: u64,
+) -> Option<bool> {
+    match search(roster, policy, forbidden, &mut |_| {}, node_budget) {
         Outcome::Found(_) => Some(true),
         Outcome::Exhausted => Some(false),
         Outcome::OutOfBudget => None,
@@ -297,22 +388,88 @@ pub enum Count {
     },
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SolutionSet {
+    Exact(Vec<Assignment>),
+    AtLeast(usize),
+    Unknown(usize),
+}
+
 /// Count valid assignments exactly (up to `limit`).
 pub fn count_solutions(roster: &Roster, policy: &Policy, limit: u64, node_budget: u64) -> Count {
+    count_solutions_avoiding(
+        roster,
+        policy,
+        &ForbiddenEdges::none(roster.len()),
+        limit,
+        node_budget,
+    )
+}
+
+pub fn count_solutions_avoiding(
+    roster: &Roster,
+    policy: &Policy,
+    forbidden: &ForbiddenEdges,
+    limit: u64,
+    node_budget: u64,
+) -> Count {
     let mut seen = 0u64;
-    let flow = Search::new(roster, policy, node_budget, &mut |_| {}, &mut |_| {
-        seen += 1;
-        if seen >= limit {
-            Flow::Stop
-        } else {
-            Flow::Continue
-        }
-    })
+    let flow = Search::new(
+        roster,
+        policy,
+        forbidden,
+        node_budget,
+        &mut |_| {},
+        &mut |_| {
+            seen += 1;
+            if seen >= limit {
+                Flow::Stop
+            } else {
+                Flow::Continue
+            }
+        },
+    )
     .run();
     match flow {
         Flow::Continue => Count::Exact(seen),
         Flow::Stop => Count::AtLeast(seen),
         Flow::OutOfBudget => Count::Unknown { seen },
+    }
+}
+
+/// Collect every admissible assignment up to `limit`. Intended for small
+/// correction rosters where the caller must apply an additional look-ahead
+/// predicate and then sample uniformly from the survivors.
+pub fn collect_solutions_avoiding(
+    roster: &Roster,
+    policy: &Policy,
+    forbidden: &ForbiddenEdges,
+    limit: usize,
+    node_budget: u64,
+) -> SolutionSet {
+    let mut found = Vec::new();
+    let flow = Search::new(
+        roster,
+        policy,
+        forbidden,
+        node_budget,
+        &mut |_| {},
+        &mut |receivers| {
+            let assignment = Assignment::from_receivers(receivers.to_vec(), roster.len())
+                .expect("search completion is a permutation");
+            found.push(assignment);
+            if found.len() >= limit {
+                Flow::Stop
+            } else {
+                Flow::Continue
+            }
+        },
+    )
+    .run();
+    match flow {
+        Flow::Continue => SolutionSet::Exact(found),
+        Flow::Stop => SolutionSet::AtLeast(found.len()),
+        Flow::OutOfBudget => SolutionSet::Unknown(found.len()),
     }
 }
 
@@ -327,14 +484,22 @@ enum Outcome {
 fn search(
     roster: &Roster,
     policy: &Policy,
+    forbidden: &ForbiddenEdges,
     order: &mut dyn FnMut(&mut Vec<ParticipantId>),
     node_budget: u64,
 ) -> Outcome {
     let mut found = None;
-    let flow = Search::new(roster, policy, node_budget, order, &mut |receivers| {
-        found = Some(receivers.to_vec());
-        Flow::Stop
-    })
+    let flow = Search::new(
+        roster,
+        policy,
+        forbidden,
+        node_budget,
+        order,
+        &mut |receivers| {
+            found = Some(receivers.to_vec());
+            Flow::Stop
+        },
+    )
     .run();
     match (flow, found) {
         (Flow::Stop, Some(receivers)) => {
@@ -374,6 +539,7 @@ const FEWEST_OPTIONS_MAX_N: usize = 64;
 struct Search<'a> {
     roster: &'a Roster,
     policy: &'a Policy,
+    forbidden: &'a ForbiddenEdges,
     partial: Partial,
     giver_order: GiverOrder,
     nodes: u64,
@@ -386,6 +552,7 @@ impl<'a> Search<'a> {
     fn new(
         roster: &'a Roster,
         policy: &'a Policy,
+        forbidden: &'a ForbiddenEdges,
         budget: u64,
         order: &'a mut dyn FnMut(&mut Vec<ParticipantId>),
         on_complete: &'a mut dyn FnMut(&[ParticipantId]) -> Flow,
@@ -401,6 +568,7 @@ impl<'a> Search<'a> {
         Search {
             roster,
             policy,
+            forbidden,
             partial: Partial::new(roster),
             giver_order,
             nodes: 0,
@@ -415,8 +583,10 @@ impl<'a> Search<'a> {
     }
 
     fn admissible(&self, giver: ParticipantId) -> impl Iterator<Item = ParticipantId> + '_ {
-        (0..self.roster.len())
-            .filter(move |&r| self.partial.admits(self.policy, self.roster, giver, r))
+        (0..self.roster.len()).filter(move |&r| {
+            !self.forbidden.contains(giver, r)
+                && self.partial.admits(self.policy, self.roster, giver, r)
+        })
     }
 
     fn is_open(&self, giver: ParticipantId) -> bool {
@@ -579,6 +749,33 @@ mod tests {
         assert_eq!(
             count_solutions(&synthetic_roster(6, &[2]), &strict(), 10, u64::MAX),
             Count::AtLeast(10)
+        );
+    }
+
+    #[test]
+    fn history_exclusion_reduces_six_person_shape_without_repeats() {
+        let roster = synthetic_roster(6, &[2]);
+        let previous = Assignment::from_receivers(vec![2, 4, 5, 1, 3, 0], 6).unwrap();
+        let mut forbidden = ForbiddenEdges::none(6);
+        forbidden.extend(&previous);
+        assert_eq!(
+            count_solutions_avoiding(&roster, &Policy::strict(), &forbidden, u64::MAX, u64::MAX,),
+            Count::Exact(10)
+        );
+        let mut rng = ChaCha20Rng::seed_from_u64(99);
+        let solution = solve_avoiding(
+            &roster,
+            &Policy::strict(),
+            &forbidden,
+            &mut rng,
+            Budget::default(),
+        )
+        .unwrap();
+        assert!(
+            solution
+                .assignment
+                .pairs()
+                .all(|(giver, receiver)| !forbidden.contains(giver, receiver))
         );
     }
 
